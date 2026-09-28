@@ -11,6 +11,8 @@
   --fig: #5e2b4f;
   --fig-ink: #f6ece9;
   --fig-soft: #d9b8cc;
+  /* Testo nel colore del marchio: prugna in chiaro, rosa in scuro. */
+  --brand-text: #5e2b4f;
   --leaf: #6f8f5e;
   --serif: 'Fraunces', Georgia, serif;
   --sans: 'Inter', system-ui, -apple-system, sans-serif;
@@ -18,8 +20,9 @@
   color-scheme: light;
 }
 
+/* Tema: automatico segue il sistema; data-theme="light"/"dark" su <html> lo forza. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme='light']) {
     --bg: #141118;
     --surface: #1d1922;
     --key: #28232e;
@@ -32,10 +35,30 @@
     --fig: #4a2240;
     --fig-ink: #f6ece9;
     --fig-soft: #b98aa9;
+    --brand-text: #b98aa9;
     --leaf: #9dbb8a;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
     color-scheme: dark;
   }
+}
+
+:root[data-theme='dark'] {
+  --bg: #141118;
+  --surface: #1d1922;
+  --key: #28232e;
+  --ink: #efe9e1;
+  --muted: #9a909f;
+  --line: rgba(239, 233, 225, 0.1);
+  --thread: #cbbfd0;
+  --positive: #8cc08a;
+  --danger: #e0725c;
+  --fig: #4a2240;
+  --fig-ink: #f6ece9;
+  --fig-soft: #b98aa9;
+  --brand-text: #b98aa9;
+  --leaf: #9dbb8a;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
+  color-scheme: dark;
 }
 
 * {
@@ -113,12 +136,7 @@ select {
   font-size: 24px;
   font-weight: 500;
   letter-spacing: -0.03em;
-  color: var(--fig);
-}
-@media (prefers-color-scheme: dark) {
-  .wordmark {
-    color: var(--fig-soft);
-  }
+  color: var(--brand-text);
 }
 
 .month-nav {
@@ -900,12 +918,7 @@ select {
   bottom: -1px;
   height: 2.5px;
   border-radius: 2px;
-  background: var(--fig);
-}
-@media (prefers-color-scheme: dark) {
-  .mode-tabs button.on::after {
-    background: var(--fig-soft);
-  }
+  background: var(--brand-text);
 }
 
 .amount-hero {
@@ -1616,7 +1629,7 @@ select {
   color: var(--danger);
 }
 .check {
-  color: var(--fig);
+  color: var(--brand-text);
   font-weight: 500;
 }
 
@@ -1895,12 +1908,7 @@ select {
   align-items: center;
   justify-content: center;
   flex: none;
-  color: var(--fig);
-}
-@media (prefers-color-scheme: dark) {
-  .how-icon {
-    color: var(--fig-soft);
-  }
+  color: var(--brand-text);
 }
 .templates {
   display: grid;
@@ -2225,4 +2233,140 @@ select {
 .auto-form .input {
   padding: 9px 10px;
   font-size: 14px;
+}
+
+/* Impostazioni: menu, profilo, preferenze */
+
+.profile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.profile .grow {
+  flex: 1;
+  min-width: 0;
+}
+.avatar.big {
+  width: 48px;
+  height: 48px;
+  font-size: 20px;
+  font-family: var(--serif);
+}
+.profile-name {
+  display: block;
+  font-size: 17px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-sync {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.sync-btn {
+  background: var(--key);
+  color: var(--ink);
+}
+.sync-btn.spinning svg {
+  animation: pulse 0.8s ease-in-out infinite alternate;
+}
+
+.menu-row {
+  gap: 12px;
+}
+.menu-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--key);
+  color: var(--brand-text);
+}
+.menu-icon.danger {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+}
+.menu-value {
+  font-size: 13px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 45%;
+}
+.menu-chevron {
+  color: var(--muted);
+  flex: none;
+  opacity: 0.7;
+}
+
+.pref-row {
+  gap: 12px;
+}
+.seg {
+  display: inline-flex;
+  background: var(--key);
+  border-radius: 10px;
+  padding: 3px;
+  flex: none;
+}
+.seg button {
+  padding: 6px 11px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.seg button.on {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+main > .seg,
+.app > .seg {
+  display: flex;
+}
+.app > .seg button {
+  flex: 1;
+}
+
+.icon-btn.active {
+  background: var(--ink);
+  color: var(--bg);
+}
+.tiny-btn:disabled {
+  opacity: 0.3;
+}
+.tiny-btn.armed {
+  width: auto;
+  padding: 0 10px;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 500;
+}
+.currency-symbol {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--key);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--serif);
+  font-size: 15px;
+  flex: none;
+}
+.settings-foot {
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  margin: 22px 0 8px;
 }

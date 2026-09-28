@@ -1,4 +1,21 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import {
+  IconArrowsSort,
+  IconCategory,
+  IconChevronRight,
+  IconCloudUpload,
+  IconCurrencyEuro,
+  IconDatabaseExport,
+  IconFileImport,
+  IconFileSpreadsheet,
+  IconLogout,
+  IconRefresh,
+  IconRepeat,
+  IconRestore,
+  IconWallet,
+  IconX,
+  type Icon,
+} from '@tabler/icons-react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { exportCsv, exportJson, importJson } from './backup'
 import { CATEGORY_ICONS, CategoryIcon } from './catIcons'
 import type { AppData } from './data'
@@ -6,20 +23,25 @@ import { db, openingId, WOOL, type Account, type Category, type Frequency, type 
 import { saveOpening } from './opening'
 import { deleteSeries, updateSeries } from './recurring'
 import { builtinName, dateFmt, numberToInput, t, type Key, type LangSetting } from './i18n'
-import { IconDown, IconLeft, IconRight, IconUp } from './icons'
+import { IconLeft } from './icons'
 import { ImportCsv } from './ImportCsv'
 import { authEnabled, currentUser, signOut } from './auth'
 import { clearLocalData, getSyncStatus, syncNow, useSyncStatus } from './sync'
 import { convertMinor, fetchRate, formatMoney, fromMinor, parseTyped } from './money'
+import { readTheme, writeTheme, type Theme } from './theme'
 
 type View =
   | { type: 'main' }
+  | { type: 'categories' }
   | { type: 'category'; kind: Category['kind']; cat?: Category }
+  | { type: 'accounts' }
   | { type: 'account'; acc?: Account }
+  | { type: 'recurringList' }
+  | { type: 'recurring'; rule: Recurring }
+  | { type: 'currencies' }
   | { type: 'currency' }
   | { type: 'main-currency'; code: string }
   | { type: 'import' }
-  | { type: 'recurring'; rule: Recurring }
 
 interface Props {
   data: AppData
@@ -29,14 +51,14 @@ interface Props {
   onBack: () => void
 }
 
-function Header({ title, onBack }: { title: string; onBack: () => void }) {
+function Header({ title, onBack, action }: { title: string; onBack: () => void; action?: ReactNode }) {
   return (
     <header className="bar">
       <button className="icon-btn" aria-label={t('common.back')} onClick={onBack}>
         <IconLeft />
       </button>
       <span style={{ fontWeight: 500 }}>{title}</span>
-      <span style={{ width: 36 }} />
+      {action ?? <span style={{ width: 36 }} />}
     </header>
   )
 }
@@ -46,17 +68,71 @@ function rateFromInput(text: string): number {
   return Number(text.replace(',', '.'))
 }
 
+/** Saldo di un conto nella sua valuta: saldo iniziale, entrate, uscite e giroconti (i gomitoli non spostano soldi). */
+function balanceOf(acc: Account, data: AppData): number {
+  let b = acc.initialBalance
+  for (const tx of data.transactions) {
+    if (tx.kind === 'save' || tx.kind === 'release') continue
+    if (tx.accountId === acc.id) b += tx.kind === 'income' || tx.kind === 'opening' ? tx.amount : -tx.amount
+    if (tx.toAccountId === acc.id) b += tx.amount
+  }
+  return b
+}
+
+/** Riga di menu: icona, etichetta, valore riassunto e freccia. */
+function MenuRow({ icon: Ico, label, value, onClick, tone }: { icon: Icon; label: string; value?: string; onClick: () => void; tone?: string }) {
+  return (
+    <button className={`list-row menu-row${tone ? ` ${tone}` : ''}`} onClick={onClick}>
+      <span className="menu-icon">
+        <Ico size={18} />
+      </span>
+      <span className="grow">{label}</span>
+      {value && <span className="menu-value">{value}</span>}
+      <IconChevronRight size={18} className="menu-chevron" />
+    </button>
+  )
+}
+
+function Segmented<T extends string>({ value, options, onChange, label }: { value: T; options: [T, string][]; onChange: (v: T) => void; label: string }) {
+  return (
+    <div className="seg" role="radiogroup" aria-label={label}>
+      {options.map(([v, text]) => (
+        <button key={v} role="radio" aria-checked={value === v} className={value === v ? 'on' : ''} onClick={() => onChange(v)}>
+          {text}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export function Settings({ data, offline, langSetting, onLangChange, onBack }: Props) {
   const [view, setView] = useState<View>({ type: 'main' })
-  const back = () => setView({ type: 'main' })
+  const main = () => setView({ type: 'main' })
 
-  if (view.type === 'category') return <CategoryForm data={data} kind={view.kind} cat={view.cat} onDone={back} />
-  if (view.type === 'account') return <AccountForm data={data} acc={view.acc} onDone={back} />
-  if (view.type === 'currency') return <CurrencyForm data={data} onDone={back} />
-  if (view.type === 'main-currency') return <MainCurrencyForm data={data} code={view.code} onDone={back} />
-  if (view.type === 'import') return <ImportCsv data={data} onDone={back} />
-  if (view.type === 'recurring') return <RecurringForm data={data} rule={view.rule} onDone={back} />
-  return <SettingsMain data={data} offline={offline} langSetting={langSetting} onLangChange={onLangChange} onBack={onBack} go={setView} />
+  switch (view.type) {
+    case 'categories':
+      return <CategoriesPage data={data} onBack={main} go={setView} />
+    case 'category':
+      return <CategoryForm data={data} kind={view.kind} cat={view.cat} onDone={() => setView({ type: 'categories' })} />
+    case 'accounts':
+      return <AccountsPage data={data} onBack={main} go={setView} />
+    case 'account':
+      return <AccountForm data={data} acc={view.acc} onDone={() => setView({ type: 'accounts' })} />
+    case 'recurringList':
+      return <RecurringPage data={data} onBack={main} go={setView} />
+    case 'recurring':
+      return <RecurringForm data={data} rule={view.rule} onDone={() => setView({ type: 'recurringList' })} />
+    case 'currencies':
+      return <CurrenciesPage data={data} onBack={main} go={setView} />
+    case 'currency':
+      return <CurrencyForm data={data} onDone={() => setView({ type: 'currencies' })} />
+    case 'main-currency':
+      return <MainCurrencyForm data={data} code={view.code} onDone={() => setView({ type: 'currencies' })} />
+    case 'import':
+      return <ImportCsv data={data} onDone={main} />
+    default:
+      return <SettingsMain data={data} offline={offline} langSetting={langSetting} onLangChange={onLangChange} onBack={onBack} go={setView} />
+  }
 }
 
 function SettingsMain({
@@ -76,60 +152,18 @@ function SettingsMain({
 }) {
   const [message, setMessage] = useState('')
   const [pendingRestore, setPendingRestore] = useState<string | null>(null)
+  const [theme, setTheme] = useState<Theme>(readTheme)
   const fileRef = useRef<HTMLInputElement>(null)
-  const { categories, accounts, currencies, mainCurrency, transactions } = data
+  const { categories, accounts, currencies, mainCurrency, recurring } = data
 
-  async function move(list: Category[], index: number, dir: -1 | 1) {
-    const other = list[index + dir]
-    if (!other) return
-    const a = list[index]
-    await db.categories.bulkPut([
-      { ...a, order: other.order },
-      { ...other, order: a.order },
-    ])
-  }
-
-  function categoryList(kind: Category['kind']) {
-    const list = categories.filter((c) => c.kind === kind).sort((a, b) => a.order - b.order)
-    return (
-      <div className="list">
-        {list.map((c, i) => {
-          const name = builtinName(c, 'cat')
-          return (
-            <div key={c.id} className={`list-row${c.archived ? ' archived' : ''}`}>
-              <span className="row-icon" style={{ '--c': c.color } as CSSProperties}>
-                <CategoryIcon name={c.icon} size={18} />
-              </span>
-              <button className="grow" style={{ textAlign: 'left' }} onClick={() => go({ type: 'category', kind, cat: c })}>
-                {name}
-                {c.archived && <span className="badge">{t('common.archived')}</span>}
-              </button>
-              <button className="tiny-btn" aria-label={t('set.moveUp', { name })} onClick={() => move(list, i, -1)}>
-                <IconUp />
-              </button>
-              <button className="tiny-btn" aria-label={t('set.moveDown', { name })} onClick={() => move(list, i, 1)}>
-                <IconDown />
-              </button>
-            </div>
-          )
-        })}
-        <button className="list-row muted" onClick={() => go({ type: 'category', kind })}>
-          {t('set.newCategory')}
-        </button>
-      </div>
-    )
-  }
-
-  function balanceOf(acc: Account): number {
-    let b = acc.initialBalance
-    for (const tx of transactions) {
-      // I gomitoli sono accantonamenti "virtuali": i soldi restano sul conto.
-      if (tx.kind === 'save' || tx.kind === 'release') continue
-      if (tx.accountId === acc.id) b += tx.kind === 'income' || tx.kind === 'opening' ? tx.amount : -tx.amount
-      if (tx.toAccountId === acc.id) b += tx.amount
-    }
-    return b
-  }
+  const activeAccounts = accounts.filter((a) => !a.archived)
+  const total = activeAccounts.reduce((sum, a) => {
+    const b = balanceOf(a, data)
+    return sum + (a.currency === mainCurrency.code ? b : 0)
+  }, 0)
+  const expenseCats = categories.filter((c) => c.kind === 'expense' && !c.archived).length
+  const incomeCats = categories.filter((c) => c.kind === 'income' && !c.archived).length
+  const activeRecurring = recurring.filter((r) => r.active).length
 
   async function restore(text: string) {
     try {
@@ -141,122 +175,59 @@ function SettingsMain({
     setPendingRestore(null)
   }
 
-  const langs: [LangSetting, string][] = [
-    ['auto', t('set.langAuto')],
-    ['en', 'English'],
-    ['it', 'Italiano'],
-  ]
-
   return (
     <>
       <Header title={t('set.title')} onBack={onBack} />
 
-      <AccountSection offline={offline} />
+      <ProfileCard offline={offline} />
 
-      <p className="section-title">{t('set.language')}</p>
+      <p className="section-title">{t('set.money')}</p>
       <div className="list">
-        {langs.map(([value, label]) => (
-          <button key={value} className="list-row" onClick={() => onLangChange(value)}>
-            <span className="grow">{label}</span>
-            {langSetting === value && <span className="check">✓</span>}
-          </button>
-        ))}
+        <MenuRow icon={IconWallet} label={t('set.accounts')} value={t('set.accountsValue', { n: activeAccounts.length, total: formatMoney(total, mainCurrency) })} onClick={() => go({ type: 'accounts' })} />
+        <MenuRow icon={IconCategory} label={t('set.categories')} value={t('set.categoriesValue', { e: expenseCats, i: incomeCats })} onClick={() => go({ type: 'categories' })} />
+        <MenuRow icon={IconRepeat} label={t('set.recurring')} value={t('set.recurringValue', { n: activeRecurring })} onClick={() => go({ type: 'recurringList' })} />
+        <MenuRow icon={IconCurrencyEuro} label={t('set.currencies')} value={`${mainCurrency.code} · ${currencies.length}`} onClick={() => go({ type: 'currencies' })} />
       </div>
 
-      <p className="section-title">{t('set.expenseCats')}</p>
-      {categoryList('expense')}
-
-      <p className="section-title">{t('set.incomeCats')}</p>
-      {categoryList('income')}
-
-      <p className="section-title">{t('set.recurring')}</p>
-      {data.recurring.length === 0 ? (
-        <p className="note-box">{t('set.recurringEmpty')}</p>
-      ) : (
-        <div className="list">
-          {data.recurring.map((r) => {
-            const cat = categories.find((c) => c.id === r.categoryId)
-            const goal = r.kind === 'save' ? data.goals.find((g) => g.id === r.goalId) : undefined
-            const cur = currencies.find((c) => c.code === r.currency) ?? mainCurrency
-            return (
-              <button key={r.id} className={`list-row${r.active ? '' : ' archived'}`} onClick={() => go({ type: 'recurring', rule: r })}>
-                <span className="row-icon" style={{ '--c': goal?.color ?? cat?.color ?? 'var(--muted)' } as CSSProperties}>
-                  <CategoryIcon name={goal ? 'piggy' : cat?.icon} size={18} />
-                </span>
-                <span className="grow">
-                  {r.note || goal?.name || (cat ? builtinName(cat, 'cat') : '')}
-                  <span className="muted small" style={{ display: 'block' }}>
-                    {t(`repeat.${r.frequency}` as Key)} ·{' '}
-                    {r.active ? t('set.recurringNext', { date: dateFmt({ day: 'numeric', month: 'short' }).format(r.next) }) : t('set.recurringPaused')}
-                  </span>
-                </span>
-                <span className="legend-value">{formatMoney(r.kind === 'income' ? r.amount : -r.amount, cur, { sign: r.kind === 'income' })}</span>
-              </button>
-            )
-          })}
-        </div>
-      )}
-
-      <p className="section-title">{t('set.accounts')}</p>
+      <p className="section-title">{t('set.preferences')}</p>
       <div className="list">
-        {accounts.map((a) => {
-          const cur = currencies.find((c) => c.code === a.currency) ?? mainCurrency
-          return (
-            <button key={a.id} className={`list-row${a.archived ? ' archived' : ''}`} onClick={() => go({ type: 'account', acc: a })}>
-              <span className="grow">
-                {builtinName(a, 'acc')}
-                {a.archived && <span className="badge">{t('common.archived')}</span>}
-              </span>
-              <span className="legend-value">{formatMoney(balanceOf(a), cur)}</span>
-              <IconRightSmall />
-            </button>
-          )
-        })}
-        <button className="list-row muted" onClick={() => go({ type: 'account' })}>
-          {t('set.newAccount')}
-        </button>
-      </div>
-
-      <p className="section-title">{t('set.currencies')}</p>
-      <div className="list">
-        <label className="list-row">
-          <span className="grow">{t('set.mainCurrency')}</span>
-          <select
-            className="currency-pick"
-            value={mainCurrency.code}
-            onChange={(e) => go({ type: 'main-currency', code: e.target.value })}
-            aria-label={t('set.mainCurrency')}
-          >
-            {currencies.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.code}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="list-row">
-          <span className="grow muted small">{currencies.map((c) => `${c.code} ${c.symbol}`).join(' · ')}</span>
+        <div className="list-row pref-row">
+          <span className="grow">{t('set.language')}</span>
+          <Segmented
+            label={t('set.language')}
+            value={langSetting}
+            onChange={onLangChange}
+            options={[
+              ['auto', t('theme.auto')],
+              ['en', 'EN'],
+              ['it', 'IT'],
+            ]}
+          />
         </div>
-        <button className="list-row muted" onClick={() => go({ type: 'currency' })}>
-          {t('set.addCurrency')}
-        </button>
+        <div className="list-row pref-row">
+          <span className="grow">{t('set.theme')}</span>
+          <Segmented
+            label={t('set.theme')}
+            value={theme}
+            onChange={(v) => {
+              setTheme(v)
+              writeTheme(v)
+            }}
+            options={[
+              ['auto', t('theme.auto')],
+              ['light', t('theme.light')],
+              ['dark', t('theme.dark')],
+            ]}
+          />
+        </div>
       </div>
 
       <p className="section-title">{t('set.data')}</p>
       <div className="list">
-        <button className="list-row" onClick={() => go({ type: 'import' })}>
-          <span className="grow">{t('set.import')}</span>
-          <IconRightSmall />
-        </button>
-        <button className="list-row" onClick={() => exportCsv()}>
-          <span className="grow">{t('set.exportCsv')}</span>
-        </button>
-        <button className="list-row" onClick={() => exportJson()}>
-          <span className="grow">{t('set.backup')}</span>
-        </button>
-        <button className="list-row" onClick={() => fileRef.current?.click()}>
-          <span className="grow">{t('set.restore')}</span>
-        </button>
+        <MenuRow icon={IconFileImport} label={t('set.import')} onClick={() => go({ type: 'import' })} />
+        <MenuRow icon={IconFileSpreadsheet} label={t('set.exportCsv')} onClick={() => exportCsv()} />
+        <MenuRow icon={IconDatabaseExport} label={t('set.backup')} onClick={() => exportJson()} />
+        <MenuRow icon={IconRestore} label={t('set.restore')} onClick={() => fileRef.current?.click()} />
         <input
           ref={fileRef}
           type="file"
@@ -284,21 +255,23 @@ function SettingsMain({
       )}
       {message && <p className="note-box">{message}</p>}
       <p className="note-box">{t('set.localNote')}</p>
+
+      {authEnabled() && !offline && <SignOut />}
+      <p className="settings-foot">FIG · fig.vlabstudio.net</p>
     </>
   )
 }
 
-function AccountSection({ offline }: { offline: boolean }) {
+/** In cima: chi sei e lo stato della sincronizzazione. */
+function ProfileCard({ offline }: { offline: boolean }) {
   const status = useSyncStatus()
   const user = currentUser()
-  const [confirm, setConfirm] = useState(false)
 
   if (!authEnabled())
     return (
-      <>
-        <p className="section-title">{t('set.account')}</p>
-        <p className="note-box">{t('sync.localMode')}</p>
-      </>
+      <div className="card profile">
+        <span className="muted small">{t('sync.localMode')}</span>
+      </div>
     )
 
   let text: string
@@ -308,6 +281,31 @@ function AccountSection({ offline }: { offline: boolean }) {
   else if (status.lastSync) text = t('sync.synced', { time: dateFmt({ hour: '2-digit', minute: '2-digit' }).format(status.lastSync) })
   else text = t('sync.never')
   if (status.pending > 0 && status.state !== 'syncing') text += ` · ${t('sync.pending', { n: status.pending })}`
+
+  return (
+    <div className="card profile">
+      <span className="avatar big">{(user?.name ?? user?.email ?? '?').slice(0, 1).toUpperCase()}</span>
+      <span className="grow">
+        <span className="profile-name">{user?.name ?? user?.email}</span>
+        {user?.name && user.email && <span className="muted small" style={{ display: 'block' }}>{user.email}</span>}
+        <span className="profile-sync">
+          <span className={`sync-dot ${offline ? 'offline' : status.state}`} />
+          {text}
+        </span>
+      </span>
+      {!offline && (
+        <button className={`icon-btn sync-btn${status.state === 'syncing' ? ' spinning' : ''}`} aria-label={t('set.syncNow')} onClick={() => syncNow()}>
+          {status.state === 'syncing' ? <IconCloudUpload size={20} /> : <IconRefresh size={20} />}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Uscita in fondo alla pagina, con avviso se ci sono modifiche non ancora sincronizzate. */
+function SignOut() {
+  const status = useSyncStatus()
+  const [confirm, setConfirm] = useState(false)
 
   async function doSignOut(force = false) {
     if (!force) {
@@ -320,29 +318,13 @@ function AccountSection({ offline }: { offline: boolean }) {
 
   return (
     <>
-      <p className="section-title">{t('set.account')}</p>
-      <div className="list">
-        <div className="list-row">
-          <span className="avatar">{(user?.name ?? user?.email ?? '?').slice(0, 1).toUpperCase()}</span>
-          <span className="grow">
-            {user?.name ?? user?.email}
-            {user?.name && user.email && <span className="muted small" style={{ display: 'block' }}>{user.email}</span>}
+      <div className="list" style={{ marginTop: 22 }}>
+        <button className="list-row menu-row danger-text" onClick={() => doSignOut()}>
+          <span className="menu-icon danger">
+            <IconLogout size={18} />
           </span>
-        </div>
-        <div className="list-row">
-          <span className={`sync-dot ${offline ? 'offline' : status.state}`} />
-          <span className="grow small">{text}</span>
-          {!offline && (
-            <button className="secondary slim" onClick={() => syncNow()}>
-              {t('set.syncNow')}
-            </button>
-          )}
-        </div>
-        {!offline && (
-          <button className="list-row danger-text" onClick={() => doSignOut()}>
-            {t('set.signOut')}
-          </button>
-        )}
+          <span className="grow">{t('set.signOut')}</span>
+        </button>
       </div>
       {confirm && (
         <div className="card" style={{ marginTop: 12 }}>
@@ -357,6 +339,235 @@ function AccountSection({ offline }: { offline: boolean }) {
           </div>
         </div>
       )}
+    </>
+  )
+}
+
+function CategoriesPage({ data, onBack, go }: { data: AppData; onBack: () => void; go: (v: View) => void }) {
+  const [kind, setKind] = useState<Category['kind']>('expense')
+  const [reorder, setReorder] = useState(false)
+  const list = data.categories.filter((c) => c.kind === kind).sort((a, b) => a.order - b.order)
+  const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime()
+  const uses = new Map<string, number>()
+  for (const tx of data.transactions) if (tx.categoryId && tx.date >= monthStart) uses.set(tx.categoryId, (uses.get(tx.categoryId) ?? 0) + 1)
+
+  async function move(index: number, dir: -1 | 1) {
+    const other = list[index + dir]
+    if (!other) return
+    const a = list[index]
+    await db.categories.bulkPut([
+      { ...a, order: other.order },
+      { ...other, order: a.order },
+    ])
+  }
+
+  return (
+    <>
+      <Header
+        title={t('set.categories')}
+        onBack={onBack}
+        action={
+          <button className={`icon-btn${reorder ? ' active' : ''}`} aria-label={t('set.reorder')} aria-pressed={reorder} onClick={() => setReorder((v) => !v)}>
+            <IconArrowsSort size={20} />
+          </button>
+        }
+      />
+      <Segmented
+        label={t('set.categories')}
+        value={kind}
+        onChange={setKind}
+        options={[
+          ['expense', t('set.expenses')],
+          ['income', t('set.incomes')],
+        ]}
+      />
+      <div className="list" style={{ marginTop: 14 }}>
+        {list.map((c, i) => {
+          const name = builtinName(c, 'cat')
+          const n = uses.get(c.id) ?? 0
+          return (
+            <div key={c.id} className={`list-row${c.archived ? ' archived' : ''}`}>
+              <span className="row-icon" style={{ '--c': c.color } as CSSProperties}>
+                <CategoryIcon name={c.icon} size={18} />
+              </span>
+              <button className="grow" style={{ textAlign: 'left' }} onClick={() => go({ type: 'category', kind, cat: c })}>
+                {name}
+                {c.archived ? (
+                  <span className="badge">{t('common.archived')}</span>
+                ) : (
+                  n > 0 && <span className="muted small" style={{ display: 'block' }}>{t('set.usesThisMonth', { n })}</span>
+                )}
+              </button>
+              {reorder ? (
+                <>
+                  <button className="tiny-btn" aria-label={t('set.moveUp', { name })} onClick={() => move(i, -1)} disabled={i === 0}>
+                    ↑
+                  </button>
+                  <button className="tiny-btn" aria-label={t('set.moveDown', { name })} onClick={() => move(i, 1)} disabled={i === list.length - 1}>
+                    ↓
+                  </button>
+                </>
+              ) : (
+                <IconChevronRight size={18} className="menu-chevron" />
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <button className="primary wide" style={{ marginTop: 14 }} onClick={() => go({ type: 'category', kind })}>
+        {t('set.newCategory')}
+      </button>
+    </>
+  )
+}
+
+function AccountsPage({ data, onBack, go }: { data: AppData; onBack: () => void; go: (v: View) => void }) {
+  const { accounts, currencies, mainCurrency } = data
+  const active = accounts.filter((a) => !a.archived)
+  const archived = accounts.filter((a) => a.archived)
+  const total = active.reduce((s, a) => s + (a.currency === mainCurrency.code ? balanceOf(a, data) : 0), 0)
+  const hasForeign = active.some((a) => a.currency !== mainCurrency.code)
+
+  const row = (a: Account) => {
+    const cur = currencies.find((c) => c.code === a.currency) ?? mainCurrency
+    const b = balanceOf(a, data)
+    return (
+      <button key={a.id} className={`list-row menu-row${a.archived ? ' archived' : ''}`} onClick={() => go({ type: 'account', acc: a })}>
+        <span className="menu-icon">
+          <IconWallet size={18} />
+        </span>
+        <span className="grow">
+          {builtinName(a, 'acc')}
+          {a.archived && <span className="badge">{t('common.archived')}</span>}
+          {a.currency !== mainCurrency.code && <span className="muted small" style={{ display: 'block' }}>{a.currency}</span>}
+        </span>
+        <span className={`legend-value${b < 0 ? ' negative' : ''}`}>{formatMoney(b, cur)}</span>
+        <IconChevronRight size={18} className="menu-chevron" />
+      </button>
+    )
+  }
+
+  return (
+    <>
+      <Header title={t('set.accounts')} onBack={onBack} />
+      <section className="card goals-total">
+        <span className="stat-label">{t('set.total')}</span>
+        <span className="goals-total-amount">{formatMoney(total, mainCurrency)}</span>
+        {hasForeign && <span className="stat-extra">{t('set.totalNote', { code: mainCurrency.code })}</span>}
+      </section>
+      <div className="list">{active.map(row)}</div>
+      {archived.length > 0 && (
+        <>
+          <p className="section-title">{t('common.archived')}</p>
+          <div className="list">{archived.map(row)}</div>
+        </>
+      )}
+      <button className="primary wide" style={{ marginTop: 14 }} onClick={() => go({ type: 'account' })}>
+        {t('set.newAccount')}
+      </button>
+    </>
+  )
+}
+
+function RecurringPage({ data, onBack, go }: { data: AppData; onBack: () => void; go: (v: View) => void }) {
+  const { recurring, categories, currencies, mainCurrency, goals } = data
+  const sorted = [...recurring].sort((a, b) => Number(b.active) - Number(a.active) || a.next - b.next)
+  const monthlyOut = recurring
+    .filter((r) => r.active && r.kind !== 'income')
+    .reduce((s, r) => s + (r.frequency === 'month' ? r.mainAmount : r.frequency === 'week' ? Math.round((r.mainAmount * 52) / 12) : Math.round(r.mainAmount / 12)), 0)
+
+  return (
+    <>
+      <Header title={t('set.recurring')} onBack={onBack} />
+      {recurring.length === 0 ? (
+        <p className="note-box">{t('set.recurringEmpty')}</p>
+      ) : (
+        <>
+          <section className="card goals-total">
+            <span className="stat-label">{t('set.recurringMonthly')}</span>
+            <span className="goals-total-amount">{formatMoney(monthlyOut, mainCurrency)}</span>
+            <span className="stat-extra">{t('set.recurringMonthlyNote')}</span>
+          </section>
+          <div className="list">
+            {sorted.map((r) => {
+              const cat = categories.find((c) => c.id === r.categoryId)
+              const goal = r.kind === 'save' ? goals.find((g) => g.id === r.goalId) : undefined
+              const cur = currencies.find((c) => c.code === r.currency) ?? mainCurrency
+              return (
+                <button key={r.id} className={`list-row${r.active ? '' : ' archived'}`} onClick={() => go({ type: 'recurring', rule: r })}>
+                  <span className="row-icon" style={{ '--c': goal?.color ?? cat?.color ?? 'var(--muted)' } as CSSProperties}>
+                    <CategoryIcon name={goal ? 'piggy' : cat?.icon} size={18} />
+                  </span>
+                  <span className="grow">
+                    {r.note || goal?.name || (cat ? builtinName(cat, 'cat') : '')}
+                    <span className="muted small" style={{ display: 'block' }}>
+                      {t(`repeat.${r.frequency}` as Key)} ·{' '}
+                      {r.active ? t('set.recurringNext', { date: dateFmt({ day: 'numeric', month: 'short' }).format(r.next) }) : t('set.recurringPaused')}
+                    </span>
+                  </span>
+                  <span className={`legend-value${r.kind === 'income' ? ' positive' : ''}`}>
+                    {formatMoney(r.kind === 'income' ? r.amount : -r.amount, cur, { sign: r.kind === 'income' })}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          <p className="note-box">{t('set.recurringHint')}</p>
+        </>
+      )}
+    </>
+  )
+}
+
+function CurrenciesPage({ data, onBack, go }: { data: AppData; onBack: () => void; go: (v: View) => void }) {
+  const { currencies, mainCurrency, transactions, accounts } = data
+  const [armed, setArmed] = useState<string | null>(null)
+  const used = new Set([...transactions.map((tx) => tx.currency), ...accounts.map((a) => a.currency), mainCurrency.code])
+
+  async function remove(code: string) {
+    if (armed !== code) return setArmed(code)
+    await db.currencies.delete(code)
+    setArmed(null)
+  }
+
+  return (
+    <>
+      <Header title={t('set.currencies')} onBack={onBack} />
+      <div className="list">
+        <label className="list-row">
+          <span className="grow">{t('set.mainCurrency')}</span>
+          <select className="currency-pick" value={mainCurrency.code} onChange={(e) => go({ type: 'main-currency', code: e.target.value })} aria-label={t('set.mainCurrency')}>
+            {currencies.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.code}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <p className="section-title">{t('set.currencyList')}</p>
+      <div className="list">
+        {currencies.map((c) => (
+          <div key={c.code} className="list-row">
+            <span className="currency-symbol">{c.symbol}</span>
+            <span className="grow">
+              {c.code}
+              <span className="muted small" style={{ display: 'block' }}>
+                {c.code === mainCurrency.code ? t('set.currencyMain') : used.has(c.code) ? t('set.currencyUsed') : t('curForm.decimalsValue', { n: c.decimals })}
+              </span>
+            </span>
+            {!used.has(c.code) && (
+              <button className={`tiny-btn${armed === c.code ? ' armed' : ''}`} aria-label={t('curForm.remove', { code: c.code })} onClick={() => remove(c.code)}>
+                {armed === c.code ? t('curForm.removeConfirm') : <IconX size={16} />}
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+      <button className="primary wide" style={{ marginTop: 14 }} onClick={() => go({ type: 'currency' })}>
+        {t('set.addCurrency')}
+      </button>
+      <p className="note-box">{t('curForm.note')}</p>
     </>
   )
 }
@@ -431,14 +642,6 @@ function RecurringForm({ data, rule, onDone }: { data: AppData; rule: Recurring;
         </button>
       </p>
     </>
-  )
-}
-
-function IconRightSmall() {
-  return (
-    <span className="tiny-btn" aria-hidden="true">
-      <IconRight />
-    </span>
   )
 }
 

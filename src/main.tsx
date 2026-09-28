@@ -7,12 +7,16 @@ import { t } from './i18n'
 import { IconFig } from './icons'
 import { materializeRecurring } from './recurring'
 import { startSync } from './sync'
+import { applyTheme, readTheme } from './theme'
 import './styles.css'
 
 // In sviluppo niente service worker, altrimenti la cache nasconde le modifiche.
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'))
 }
+
+// Tema scelto dall'utente, prima del primo disegno.
+applyTheme(readTheme())
 
 const root = createRoot(document.getElementById('root')!)
 
