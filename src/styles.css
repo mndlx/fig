@@ -2370,3 +2370,117 @@ main > .seg,
   color: var(--muted);
   margin: 22px 0 8px;
 }
+
+/* Filo: ricerca e giorni compattati */
+
+.thread-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 6px;
+  color: var(--muted);
+}
+.thread-search.open {
+  background: var(--surface);
+  border-radius: 14px;
+  padding: 4px 4px 4px 12px;
+  box-shadow: var(--shadow);
+}
+.thread-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font-size: 15px;
+  padding: 8px 0;
+  outline: none;
+  color: var(--ink);
+}
+.search-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 6px 12px 6px 10px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.search-open:hover {
+  color: var(--ink);
+}
+.search-count {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 4px 4px 8px;
+}
+.search-row .grow {
+  flex: 1;
+  min-width: 0;
+}
+.search-row .amount {
+  font-size: 16px;
+}
+
+.row-summary {
+  border-radius: 14px;
+  transition: background 0.15s;
+}
+.row-summary:hover {
+  background: var(--surface);
+}
+.summary-title {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 14px;
+}
+.summary-amount {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 15px;
+}
+.summary-chevron {
+  opacity: 0.6;
+}
+.row-day.collapsible {
+  cursor: pointer;
+}
+.row-day.collapsible .day-label::before {
+  content: '▾';
+  margin-right: -4px;
+}
+.row-day.upcoming-day .day-label {
+  color: var(--brand-text);
+}
+.collapse-all {
+  display: block;
+  margin: 6px auto 0;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 6px 12px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.summary-title::first-letter {
+  text-transform: uppercase;
+}
+
+/* Totali della card: tre colonne, etichetta sopra l'importo, senza andare a capo */
+.totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 8px;
+}
+.totals > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  white-space: nowrap;
+  min-width: 0;
+}
+.totals > span > span {
+  margin-right: 0;
+}

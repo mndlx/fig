@@ -1,17 +1,27 @@
-import { useEffect, useMemo } from 'react'
+import { IconChevronDown, IconSearch, IconX } from '@tabler/icons-react'
+import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { CategoryIcon } from './catIcons'
 import { signedMain } from './data'
 import type { Account, Category, Currency, Goal, Transaction } from './db'
 import { builtinName, dateFmt, t } from './i18n'
 import { formatMoney } from './money'
 
+/**
+ * Il filo del mese, dal più recente in alto all'inizio del mese in basso.
+ * Lo spessore è il disponibile in quel momento: in basso (inizio mese) è spesso,
+ * salendo verso oggi si assottiglia a ogni uscita e si ingrossa a ogni entrata.
+ * I giorni passati da più di un giorno sono compattati in una riga che si apre con un tocco.
+ */
+
 const LANE = 64
-const ROW = { start: 56, day: 38, tx: 64, forecast: 76 }
+const ROW = { start: 56, day: 38, tx: 60, summary: 60, forecast: 64 }
 
 type Row =
-  | { type: 'start'; balance: number }
-  | { type: 'day'; date: Date; balance: number; spent: number }
+  | { type: 'forecast'; to: number; from: number }
+  | { type: 'day'; key: string; date: Date; balance: number; spent: number; upcoming: boolean }
   | { type: 'tx'; tx: Transaction; before: number; after: number }
-  | { type: 'forecast'; from: number; to: number }
+  | { type: 'summary'; key: string; date: Date; txs: Transaction[]; before: number; after: number; spent: number }
+  | { type: 'start'; balance: number }
 
 interface Props {
   startBalance: number
@@ -40,10 +50,13 @@ function pathBetween(y0: number, y1: number, offset: number): string {
 }
 
 const dayFormat = () => dateFmt({ weekday: 'long', day: 'numeric', month: 'long' })
+const shortDay = () => dateFmt({ weekday: 'short', day: 'numeric' })
 const timeFormat = () => dateFmt({ hour: '2-digit', minute: '2-digit' })
 
+const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+
 function sameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+  return dayKey(a) === dayKey(b)
 }
 
 function dayLabel(d: Date): string {
@@ -74,34 +87,73 @@ function YarnKnot({ x, y, r, color }: { x: number; y: number; r: number; color: 
 
 export function ThreadView(props: Props) {
   const { startBalance, monthTx, forecast, mainCurrency, currencies, categories, accounts, goals, freshId } = props
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [query, setQuery] = useState('')
+  const [searching, setSearching] = useState(false)
+
+  const catById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
+  const accById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts])
+  const curByCode = useMemo(() => new Map(currencies.map((c) => [c.code, c])), [currencies])
+  const goalById = useMemo(() => new Map(goals.map((g) => [g.id, g])), [goals])
+  const mainAccountId = accounts.find((a) => !a.archived)?.id
+  const accName = (id?: string) => {
+    const a = id ? accById.get(id) : undefined
+    return a ? builtinName(a, 'acc') : '?'
+  }
+
+  // Il giorno del movimento appena salvato si apre da solo.
+  const freshDay = useMemo(() => {
+    const tx = freshId ? monthTx.find((x) => x.id === freshId) : undefined
+    return tx ? dayKey(new Date(tx.date)) : null
+  }, [freshId, monthTx])
 
   const rows = useMemo(() => {
-    const out: Row[] = [{ type: 'start', balance: startBalance }]
+    const now = new Date()
+    const recent = new Set([dayKey(now), dayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))])
+
+    // Saldi in ordine cronologico, poi gruppi per giorno.
+    type Day = { key: string; date: Date; items: { tx: Transaction; before: number; after: number }[]; start: number; end: number; spent: number }
+    const days: Day[] = []
     let running = startBalance
-    let dayRow: Extract<Row, { type: 'day' }> | null = null
     for (const tx of monthTx) {
       const d = new Date(tx.date)
-      if (!dayRow || !sameDay(dayRow.date, d)) {
-        dayRow = { type: 'day', date: d, balance: running, spent: 0 }
-        out.push(dayRow)
+      const key = dayKey(d)
+      let day = days[days.length - 1]
+      if (!day || day.key !== key) {
+        day = { key, date: d, items: [], start: running, end: running, spent: 0 }
+        days.push(day)
       }
-      if (tx.kind === 'expense') dayRow.spent += tx.mainAmount
       const delta = signedMain(tx)
-      out.push({ type: 'tx', tx, before: running, after: running + delta })
+      day.items.push({ tx, before: running, after: running + delta })
       running += delta
+      day.end = running
+      if (tx.kind === 'expense') day.spent += tx.mainAmount
     }
-    if (forecast !== null) out.push({ type: 'forecast', from: running, to: forecast })
+
+    // Dal più recente: previsione, giorni (aperti o compattati), inizio mese.
+    const out: Row[] = []
+    if (forecast !== null) out.push({ type: 'forecast', to: forecast, from: running })
+    for (const day of [...days].reverse()) {
+      const upcoming = day.date.getTime() > now.getTime() && !recent.has(day.key)
+      const open = upcoming || recent.has(day.key) || expanded.has(day.key) || day.key === freshDay || day.items.length === 1
+      if (open) {
+        out.push({ type: 'day', key: day.key, date: day.date, balance: day.end, spent: day.spent, upcoming })
+        for (const item of [...day.items].reverse()) out.push({ type: 'tx', ...item })
+      } else {
+        out.push({ type: 'summary', key: day.key, date: day.date, txs: day.items.map((i) => i.tx), before: day.start, after: day.end, spent: day.spent })
+      }
+    }
+    out.push({ type: 'start', balance: startBalance })
     return out
-  }, [startBalance, monthTx, forecast])
+  }, [startBalance, monthTx, forecast, expanded, freshDay])
 
   // Riferimento per lo spessore: il saldo più alto toccato nel mese.
   const ref = useMemo(() => {
     let max = Math.max(startBalance, 1)
-    for (const r of rows) if (r.type === 'tx') max = Math.max(max, r.before, r.after)
+    for (const r of rows) if (r.type === 'tx' || r.type === 'summary') max = Math.max(max, r.before, r.after)
     return max
   }, [rows, startBalance])
-
-  const maxAmount = useMemo(() => Math.max(1, ...monthTx.map((t) => t.mainAmount)), [monthTx])
+  const maxAmount = useMemo(() => Math.max(1, ...monthTx.map((tx) => tx.mainAmount)), [monthTx])
 
   const width = (balance: number) => (balance <= 0 ? 1.25 : 1.5 + 5.5 * Math.min(1, balance / ref))
   const tone = (balance: number) => (balance < 0 ? 'var(--danger)' : 'var(--thread)')
@@ -111,59 +163,161 @@ export function ThreadView(props: Props) {
     if (freshId) document.querySelector('.row-tx.fresh')?.scrollIntoView({ block: 'center', behavior: 'smooth' })
   }, [freshId, monthTx.length])
 
-  const catById = new Map(categories.map((c) => [c.id, c]))
-  const accById = new Map(accounts.map((a) => [a.id, a]))
-  const accName = (id?: string) => {
-    const a = id ? accById.get(id) : undefined
-    return a ? builtinName(a, 'acc') : '?'
+  function toggle(key: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
   }
-  const curByCode = new Map(currencies.map((c) => [c.code, c]))
-  const goalById = new Map(goals.map((g) => [g.id, g]))
+
+  /** Titolo, dettagli e importo di un movimento, come si leggono nel filo e nella ricerca. */
+  function describe(tx: Transaction) {
+    const cat = tx.categoryId ? catById.get(tx.categoryId) : undefined
+    const goal = tx.goalId ? goalById.get(tx.goalId) : undefined
+    const cur = curByCode.get(tx.currency) ?? mainCurrency
+    const otherAccount = tx.accountId !== mainAccountId ? accName(tx.accountId) : null
+    let title: string
+    let meta: (string | null | undefined)[]
+    let amount: string
+    let tone = ''
+    switch (tx.kind) {
+      case 'opening':
+        title = t('thread.opening')
+        meta = [accName(tx.accountId), tx.note]
+        amount = formatMoney(tx.amount, cur)
+        break
+      case 'transfer':
+        title = `${accName(tx.accountId)} → ${accName(tx.toAccountId)}`
+        meta = [t('thread.transfer'), tx.note]
+        amount = formatMoney(tx.amount, cur)
+        tone = 'muted'
+        break
+      case 'save':
+        title = goal?.name ?? t('thread.stash')
+        meta = [t('thread.saved'), tx.note]
+        amount = formatMoney(-tx.amount, cur)
+        break
+      case 'release':
+        title = goal?.name ?? t('thread.stash')
+        meta = [t('thread.released'), tx.note]
+        amount = formatMoney(tx.amount, cur, { sign: true })
+        tone = 'positive'
+        break
+      default: {
+        const catName = cat ? builtinName(cat, 'cat') : t('thread.uncategorized')
+        // Con una nota ("Netflix", "Affitto") il titolo è la nota e la categoria va nei dettagli.
+        title = tx.note || catName
+        meta = [tx.note ? catName : null, goal ? t('thread.fromGoal', { goal: goal.name }) : null, otherAccount]
+        amount = formatMoney(tx.kind === 'income' ? tx.amount : -tx.amount, cur, { sign: true })
+        if (tx.kind === 'income') tone = 'positive'
+        if (goal) tone = 'from-goal'
+      }
+    }
+    const upcoming = tx.date > Date.now()
+    const metaText = [upcoming ? t('thread.upcoming') : null, tx.recurringId ? '↻' : null, ...meta, timeFormat().format(tx.date)].filter(Boolean).join(' · ')
+    const converted = tx.currency !== mainCurrency.code && tx.kind !== 'transfer' ? formatMoney(tx.kind === 'income' ? tx.mainAmount : -tx.mainAmount, mainCurrency) : null
+    return { title, metaText, amount, tone, converted, cat, goal, upcoming }
+  }
+
+  // ——— Ricerca: elenco semplice dei movimenti del mese che corrispondono ———
+  const q = query.trim().toLowerCase()
+  const results = useMemo(() => {
+    if (!q) return []
+    return [...monthTx].reverse().filter((tx) => {
+      const d = describe(tx)
+      const amountText = (tx.mainAmount / 10 ** mainCurrency.decimals).toFixed(mainCurrency.decimals)
+      return (
+        d.title.toLowerCase().includes(q) ||
+        d.metaText.toLowerCase().includes(q) ||
+        accName(tx.accountId).toLowerCase().includes(q) ||
+        amountText.includes(q.replace(',', '.'))
+      )
+    })
+  }, [q, monthTx, categories, goals, accounts])
+
+  const searchBar = (
+    <div className={`thread-search${searching ? ' open' : ''}`}>
+      {searching ? (
+        <>
+          <IconSearch size={17} />
+          <input
+            autoFocus
+            value={query}
+            placeholder={t('thread.searchPlaceholder')}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label={t('thread.search')}
+          />
+          <button
+            className="icon-btn"
+            aria-label={t('common.close')}
+            onClick={() => {
+              setQuery('')
+              setSearching(false)
+            }}
+          >
+            <IconX size={18} />
+          </button>
+        </>
+      ) : (
+        <button className="search-open" onClick={() => setSearching(true)}>
+          <IconSearch size={16} />
+          {t('thread.search')}
+        </button>
+      )}
+    </div>
+  )
+
+  if (q) {
+    const total = results.reduce((s, tx) => s + signedMain(tx), 0)
+    return (
+      <div className="thread">
+        {searchBar}
+        <p className="search-count">
+          {t('thread.found', { n: results.length })}
+          {results.length > 0 && <span> · {formatMoney(total, mainCurrency, { sign: true })}</span>}
+        </p>
+        <div className="list">
+          {results.map((tx) => {
+            const d = describe(tx)
+            return (
+              <button key={tx.id} className="list-row search-row" onClick={() => props.onOpen(tx)}>
+                <span className="row-icon" style={{ '--c': d.goal?.color ?? d.cat?.color ?? 'var(--muted)' } as CSSProperties}>
+                  <CategoryIcon name={d.cat?.icon ?? (tx.kind === 'save' || tx.kind === 'release' ? 'piggy' : 'dots')} size={16} />
+                </span>
+                <span className="grow">
+                  {d.title}
+                  <span className="tx-meta" style={{ display: 'block' }}>
+                    {shortDay().format(tx.date)} · {d.metaText}
+                  </span>
+                </span>
+                <span className={`amount ${d.tone}`}>{d.amount}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
 
   let offset = 0
   return (
     <div className="thread">
+      {monthTx.length > 0 && searchBar}
       {rows.map((row) => {
         const h = ROW[row.type]
         const y = offset
         offset += h
 
-        if (row.type === 'start') {
-          return (
-            <div key="start" className="row row-start" style={{ height: h }}>
-              <svg width={LANE} height={h} aria-hidden="true">
-                <path d={pathBetween(h / 2, h, y)} stroke={tone(row.balance)} strokeWidth={width(row.balance)} fill="none" strokeLinecap="round" />
-                <circle cx={xAt(y + h / 2)} cy={h / 2} r={width(row.balance) / 2 + 2} fill="var(--thread)" />
-              </svg>
-              <div className="row-body">
-                <span className="muted">{t('thread.start')}</span>
-                <span className="muted">{formatMoney(row.balance, mainCurrency)}</span>
-              </div>
-            </div>
-          )
-        }
-
-        if (row.type === 'day') {
-          return (
-            <div key={`day-${row.date.toDateString()}`} className="row row-day" style={{ height: h }}>
-              <svg width={LANE} height={h} aria-hidden="true">
-                <path d={pathBetween(0, h, y)} stroke={tone(row.balance)} strokeWidth={width(row.balance)} fill="none" strokeLinecap="round" />
-              </svg>
-              <div className="row-body">
-                <span className="day-label">{dayLabel(row.date)}</span>
-                {row.spent > 0 && <span className="day-total">{formatMoney(-row.spent, mainCurrency)}</span>}
-              </div>
-            </div>
-          )
-        }
-
         if (row.type === 'forecast') {
-          const endY = h * 0.62
+          // In cima: il filo "futuro", tratteggiato, che scende verso oggi.
+          const startY = h * 0.38
           return (
             <div key="forecast" className="row row-forecast" style={{ height: h }}>
               <svg width={LANE} height={h} aria-hidden="true">
                 <path
-                  d={pathBetween(0, endY, y)}
+                  d={pathBetween(startY, h, y)}
                   stroke={tone(row.to)}
                   strokeWidth={Math.min(4, width(row.from), width(row.to))}
                   strokeDasharray="0.5 8"
@@ -180,65 +334,90 @@ export function ThreadView(props: Props) {
           )
         }
 
+        if (row.type === 'start') {
+          return (
+            <div key="start" className="row row-start" style={{ height: h }}>
+              <svg width={LANE} height={h} aria-hidden="true">
+                <path d={pathBetween(0, h / 2, y)} stroke={tone(row.balance)} strokeWidth={width(row.balance)} fill="none" strokeLinecap="round" />
+                <circle cx={xAt(y + h / 2)} cy={h / 2} r={width(row.balance) / 2 + 2} fill="var(--thread)" />
+              </svg>
+              <div className="row-body">
+                <span className="muted">{t('thread.start')}</span>
+                <span className="muted">{formatMoney(row.balance, mainCurrency)}</span>
+              </div>
+            </div>
+          )
+        }
+
+        if (row.type === 'day') {
+          return (
+            <div
+              key={`day-${row.key}`}
+              className={`row row-day${row.upcoming ? ' upcoming-day' : ''}${expanded.has(row.key) ? ' collapsible' : ''}`}
+              style={{ height: h }}
+              onClick={expanded.has(row.key) ? () => toggle(row.key) : undefined}
+            >
+              <svg width={LANE} height={h} aria-hidden="true">
+                <path d={pathBetween(0, h, y)} stroke={tone(row.balance)} strokeWidth={width(row.balance)} fill="none" strokeLinecap="round" />
+              </svg>
+              <div className="row-body">
+                <span className="day-label">{dayLabel(row.date)}</span>
+                {row.spent > 0 && <span className="day-total">{formatMoney(-row.spent, mainCurrency)}</span>}
+              </div>
+            </div>
+          )
+        }
+
+        if (row.type === 'summary') {
+          // Giorno compattato: un nodo con i colori delle sue categorie principali.
+          const mid = h / 2
+          const x = xAt(y + mid)
+          const colors = [...new Set(row.txs.map((tx) => (tx.categoryId ? catById.get(tx.categoryId)?.color : tx.goalId ? goalById.get(tx.goalId)?.color : undefined)).filter(Boolean))].slice(0, 3) as string[]
+          const net = row.after - row.before
+          return (
+            <button key={`sum-${row.key}`} className="row row-summary" style={{ height: h }} onClick={() => toggle(row.key)} aria-expanded="false">
+              <svg width={LANE} height={h} aria-hidden="true">
+                <path d={pathBetween(0, mid, y)} stroke={tone(row.after)} strokeWidth={width(row.after)} fill="none" strokeLinecap="round" />
+                <path d={pathBetween(mid, h, y)} stroke={tone(row.before)} strokeWidth={width(row.before)} fill="none" strokeLinecap="round" />
+                <g className="knot">
+                  {colors.map((c, i) => (
+                    <circle key={c} cx={x - 5 + i * 5} cy={mid} r={6} fill={c} stroke="var(--bg)" strokeWidth={2} />
+                  ))}
+                  {colors.length === 0 && <circle cx={x} cy={mid} r={6} fill="var(--muted)" stroke="var(--bg)" strokeWidth={2} />}
+                </g>
+              </svg>
+              <div className="row-body">
+                <span className="tx-text">
+                  <span className="tx-title summary-title">{dayFormat().format(row.date)}</span>
+                  <span className="tx-meta">{t('thread.dayCount', { n: row.txs.length })}</span>
+                </span>
+                <span className="amount summary-amount">
+                  {row.spent > 0 ? formatMoney(-row.spent, mainCurrency) : formatMoney(net, mainCurrency, { sign: true })}
+                  <IconChevronDown size={14} className="summary-chevron" />
+                </span>
+              </div>
+            </button>
+          )
+        }
+
         const { tx } = row
-        const cat = tx.categoryId ? catById.get(tx.categoryId) : undefined
-        const goal = tx.goalId ? goalById.get(tx.goalId) : undefined
-        const cur = curByCode.get(tx.currency) ?? mainCurrency
+        const d = describe(tx)
         const mid = h / 2
         const x = xAt(y + mid)
         const r = 5 + 7 * Math.sqrt(tx.mainAmount / maxAmount)
 
-        let title: string
-        let meta: (string | null | undefined)[]
-        let amountText: string
-        let amountClass = 'amount'
-        switch (tx.kind) {
-          case 'opening':
-            title = t('thread.opening')
-            meta = [accName(tx.accountId), tx.note]
-            amountText = formatMoney(tx.amount, cur)
-            break
-          case 'transfer':
-            title = `${accName(tx.accountId)} → ${accName(tx.toAccountId)}`
-            meta = [t('thread.transfer'), tx.note]
-            amountText = formatMoney(tx.amount, cur)
-            amountClass += ' muted'
-            break
-          case 'save':
-            title = goal?.name ?? t('thread.stash')
-            meta = [t('thread.saved'), tx.note]
-            amountText = formatMoney(-tx.amount, cur)
-            break
-          case 'release':
-            title = goal?.name ?? t('thread.stash')
-            meta = [t('thread.released'), tx.note]
-            amountText = formatMoney(tx.amount, cur, { sign: true })
-            amountClass += ' positive'
-            break
-          default:
-            title = cat ? builtinName(cat, 'cat') : t('thread.uncategorized')
-            meta = [goal ? t('thread.fromGoal', { goal: goal.name }) : null, tx.note, accName(tx.accountId)]
-            amountText = formatMoney(tx.kind === 'income' ? tx.amount : -tx.amount, cur, { sign: true })
-            if (tx.kind === 'income') amountClass += ' positive'
-            if (goal) amountClass += ' from-goal'
-        }
-        const upcoming = tx.date > Date.now()
-        const metaText = [upcoming ? t('thread.upcoming') : null, tx.recurringId ? '↻' : null, ...meta, timeFormat().format(tx.date)]
-          .filter(Boolean)
-          .join(' · ')
-
         return (
           <button
             key={tx.id}
-            className={`row row-tx${tx.id === freshId ? ' fresh' : ''}${upcoming ? ' upcoming' : ''}`}
+            className={`row row-tx${tx.id === freshId ? ' fresh' : ''}${d.upcoming ? ' upcoming' : ''}`}
             style={{ height: h }}
             onClick={() => props.onOpen(tx)}
           >
             <svg width={LANE} height={h} aria-hidden="true">
-              <path d={pathBetween(0, mid, y)} stroke={tone(row.before)} strokeWidth={width(row.before)} fill="none" strokeLinecap="round" />
-              <path d={pathBetween(mid, h, y)} stroke={tone(row.after)} strokeWidth={width(row.after)} fill="none" strokeLinecap="round" />
+              {/* Dall'alto (dopo il movimento) al basso (prima): il filo sotto è quello di prima. */}
+              <path d={pathBetween(0, mid, y)} stroke={tone(row.after)} strokeWidth={width(row.after)} fill="none" strokeLinecap="round" />
+              <path d={pathBetween(mid, h, y)} stroke={tone(row.before)} strokeWidth={width(row.before)} fill="none" strokeLinecap="round" />
               {tx.kind === 'opening' ? (
-                // Saldo iniziale: un rocchetto, l'inizio del filo di quel conto.
                 <g className="knot">
                   <circle cx={x} cy={mid} r={10} fill="var(--bg)" stroke="var(--thread)" strokeWidth={2.5} />
                   <circle cx={x} cy={mid} r={4} fill="var(--thread)" />
@@ -246,31 +425,33 @@ export function ThreadView(props: Props) {
               ) : tx.kind === 'transfer' ? (
                 <circle className="knot" cx={x} cy={mid} r={5} fill="var(--bg)" stroke="var(--muted)" strokeWidth={1.5} />
               ) : tx.kind === 'save' || tx.kind === 'release' ? (
-                <YarnKnot x={x} y={mid} r={Math.max(7, r)} color={goal?.color ?? 'var(--muted)'} />
+                <YarnKnot x={x} y={mid} r={Math.max(7, r)} color={d.goal?.color ?? 'var(--muted)'} />
               ) : (
                 <g className="knot">
-                  <circle cx={x} cy={mid} r={r + 5} fill={cat?.color ?? 'var(--muted)'} opacity={0.18} />
-                  {/* Spesa pagata da un gomitolo: anello del colore del gomitolo. */}
-                  {goal && <circle cx={x} cy={mid} r={r + 3.5} fill="none" stroke={goal.color} strokeWidth={2} />}
-                  <circle cx={x} cy={mid} r={r} fill={cat?.color ?? 'var(--muted)'} stroke="var(--bg)" strokeWidth={2.5} />
+                  <circle cx={x} cy={mid} r={r + 5} fill={d.cat?.color ?? 'var(--muted)'} opacity={0.18} />
+                  {d.goal && <circle cx={x} cy={mid} r={r + 3.5} fill="none" stroke={d.goal.color} strokeWidth={2} />}
+                  <circle cx={x} cy={mid} r={r} fill={d.cat?.color ?? 'var(--muted)'} stroke="var(--bg)" strokeWidth={2.5} />
                 </g>
               )}
             </svg>
             <div className="row-body">
               <span className="tx-text">
-                <span className="tx-title">{title}</span>
-                <span className="tx-meta">{metaText}</span>
+                <span className="tx-title">{d.title}</span>
+                <span className="tx-meta">{d.metaText}</span>
               </span>
-              <span className={amountClass}>
-                {amountText}
-                {tx.currency !== mainCurrency.code && tx.kind !== 'transfer' && (
-                  <span className="tx-meta">{formatMoney(tx.kind === 'income' ? tx.mainAmount : -tx.mainAmount, mainCurrency)}</span>
-                )}
+              <span className={`amount ${d.tone}`}>
+                {d.amount}
+                {d.converted && <span className="tx-meta">{d.converted}</span>}
               </span>
             </div>
           </button>
         )
       })}
+      {rows.some((r) => r.type === 'day' && expanded.has(r.key)) && (
+        <button className="collapse-all" onClick={() => setExpanded(new Set())}>
+          {t('thread.collapse')}
+        </button>
+      )}
     </div>
   )
 }
