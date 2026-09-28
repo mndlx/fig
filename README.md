@@ -16,7 +16,7 @@ Browser (React + Vite, PWA)          Server (Node + Express)          Keycloak
 ```
 
 - **Local-first**: l'app scrive sempre nel database del browser e funziona anche offline. Ogni modifica va in una coda e viene inviata al server; il server risponde con ciò che è cambiato sugli altri dispositivi (vince l'ultima scrittura).
-- **Accesso**: Keycloak con authorization code + PKCE (`keycloak-js`). Il server accetta solo token del realm `virtual-systems` emessi per il client `fig`.
+- **Accesso**: lo gestisce il server (backend for frontend). `/auth/login` porta a Keycloak (authorization code + PKCE, client confidenziale con secret), `/auth/callback` crea una sessione e il browser riceve solo un cookie HttpOnly. Nessun token nel JavaScript.
 - **Database**: SQLite (`better-sqlite3`), un record JSON per ogni oggetto dell'app e utente, con un numero di revisione per la sincronizzazione.
 - **Lingue**: `src/i18n.ts`. L'app segue la lingua del dispositivo e si cambia in Impostazioni. Ogni chiave deve esistere in entrambe le lingue, altrimenti la build fallisce.
 
@@ -37,9 +37,18 @@ npm --prefix server run dev
 npm run dev
 ```
 
-Il frontend (http://localhost:5173) inoltra `/api` al server (porta 8787). Il server legge `server/.env` (vedi `server/.env.example`).
+Il frontend (http://localhost:5174, porta registrata su Keycloak) inoltra `/api` e `/auth` al server (porta 8787).
 
-Per lavorare senza login: `AUTH_DISABLED=1` in `server/.env` e `VITE_AUTH_DISABLED=1` per Vite.
+### Configurazione (.env)
+
+Tutta la configurazione sta nel server; il frontend non ne ha. Copia `server/.env.example` in:
+
+- `server/.env` per lo sviluppo, con `PUBLIC_URL=http://localhost:5174`
+- `/opt/fig/.env` sulla VPS, con `PUBLIC_URL=https://fig.vlabstudio.net`
+
+In entrambi va compilato `OIDC_CLIENT_SECRET` (Keycloak → realm virtual-systems → Clients → fig → Credentials). I file `.env` non vanno mai nel repository.
+
+Per lavorare senza login: `AUTH_DISABLED=1` in `server/.env`.
 
 ## Pubblicazione
 
@@ -51,7 +60,10 @@ bash scripts/deploy.sh
 
 Copia i file del repository su `root@31.14.134.70:/opt/fig` e lancia `docker compose up -d --build`. Il container ascolta solo su `127.0.0.1:8096`; nginx sull'host gestisce HTTPS per `fig.vlabstudio.net` (certificato Let's Encrypt via certbot).
 
-In Keycloak, client `fig`: tra i Valid redirect URIs servono `https://fig.vlabstudio.net/*` e, per lo sviluppo, `http://localhost:5173/*`; tra i Web origins `https://fig.vlabstudio.net` e `http://localhost:5173`.
+In Keycloak, client `fig` (Client authentication: On):
+
+- Valid redirect URIs: `https://fig.vlabstudio.net/auth/callback`, `http://localhost:5174/auth/callback`
+- Valid post logout redirect URIs: `https://fig.vlabstudio.net/`, `http://localhost:5174/`
 
 ## Struttura
 
