@@ -97,6 +97,19 @@ function sessionCookie(value: string, maxAgeSeconds: number): string {
   ].join('; ')
 }
 
+const LOGIN_COOKIE = 'fig_login'
+
+function loginCookie(value: string, maxAgeSeconds: number): string {
+  return [
+    `${LOGIN_COOKIE}=${value}`,
+    'Path=/auth',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${maxAgeSeconds}`,
+    ...(config.secureCookies ? ['Secure'] : []),
+  ].join('; ')
+}
+
 /** Solo percorsi interni all'app, per non trasformare il login in un redirect aperto. */
 function safeReturnTo(value: unknown): string {
   return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : '/'
@@ -113,6 +126,7 @@ export function authRouter(db: Db) {
   `)
   const createSession = db.prepare(`INSERT INTO sessions (id, user_id, id_token, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`)
   const takeSession = db.prepare(`DELETE FROM sessions WHERE id = ? RETURNING id_token`)
+  const purgeSessions = db.prepare(`DELETE FROM sessions WHERE expires_at < ?`)
 
   function failure(res: Response, message: string) {
     res.status(500).type('text/plain').send(`FIG sign-in error: ${message}`)
@@ -139,6 +153,8 @@ export function authRouter(db: Db) {
         code_challenge: crypto.createHash('sha256').update(verifier).digest('base64url'),
         code_challenge_method: 'S256',
       }).toString()
+      // Il login resta legato a questo browser: la callback accetta solo lo state del suo cookie.
+      res.setHeader('Set-Cookie', loginCookie(state, STATE_TTL / 1000))
       res.redirect(url.toString())
     } catch (e) {
       failure(res, e instanceof Error ? e.message : 'discovery failed')
@@ -149,6 +165,10 @@ export function authRouter(db: Db) {
     const { code, state, error, error_description } = req.query as Record<string, string | undefined>
     if (error) return failure(res, `${error}${error_description ? `: ${error_description}` : ''}`)
     if (!code || !state) return failure(res, 'missing code or state')
+    // Senza il cookie dello state (link di callback aperto da un altro browser) non si entra: evita il login CSRF.
+    const browserState = readCookie(req, LOGIN_COOKIE)
+    res.setHeader('Set-Cookie', loginCookie('', 0))
+    if (!browserState || browserState !== state) return res.redirect('/auth/login')
     const saved = takeState.get(state) as { verifier: string; nonce: string; return_to: string; created_at: number } | undefined
     if (!saved || Date.now() - saved.created_at > STATE_TTL) return res.redirect('/auth/login')
 
@@ -181,8 +201,9 @@ export function authRouter(db: Db) {
         now,
       })
       const sessionId = random()
+      purgeSessions.run(now)
       createSession.run(sessionId, payload.sub, tokens.id_token, now, now + config.sessionDays * 86_400_000)
-      res.setHeader('Set-Cookie', sessionCookie(sessionId, config.sessionDays * 86_400))
+      res.append('Set-Cookie', sessionCookie(sessionId, config.sessionDays * 86_400))
       res.redirect(saved.return_to)
     } catch (e) {
       failure(res, e instanceof Error ? e.message : 'callback failed')
@@ -238,6 +259,8 @@ export function requireAuth(db: Db) {
     const row = sid ? (findSession.get(sid, Date.now()) as { user_id: string; email: string | null; name: string | null } | undefined) : undefined
     if (!row) return res.status(401).json({ error: 'not_signed_in' })
     extend.run(Date.now() + config.sessionDays * 86_400_000, sid)
+    // Anche il cookie si rinnova, altrimenti scadrebbe comunque dopo SESSION_DAYS dal login.
+    res.setHeader('Set-Cookie', sessionCookie(sid!, config.sessionDays * 86_400))
     req.user = { sub: row.user_id, email: row.email ?? undefined, name: row.name ?? undefined }
     next()
   }

@@ -74,6 +74,11 @@ for (const tbl of SYNCED_TABLES) {
   })
 }
 
+/** Dentro una transazione: le sue scritture non passano dagli hook della coda (chi la apre gestisce la coda da sé). */
+export function quietCurrentTransaction() {
+  ;(Dexie.currentTransaction as unknown as Record<symbol, boolean>)[REMOTE] = true
+}
+
 /** Esegue scritture che non devono tornare al server (dati arrivati dal server, ripristini). */
 export async function withoutSync<T>(fn: () => Promise<T>): Promise<T> {
   return db.transaction('rw', [...SYNCED_TABLES.map((t) => db.table(t))], async () => {

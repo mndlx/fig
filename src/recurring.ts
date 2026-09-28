@@ -11,7 +11,8 @@ function daysIn(year: number, month: number): number {
 export function nextAfter(from: number, frequency: Frequency, start: number): number {
   const d = new Date(from)
   const s = new Date(start)
-  if (frequency === 'week') return from + 7 * 86_400_000
+  // Settimanale: stesso giorno della settimana e stessa ora anche quando cambia l'ora legale.
+  if (frequency === 'week') return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7, s.getHours(), s.getMinutes()).getTime()
   const year = frequency === 'year' ? d.getFullYear() + 1 : d.getFullYear() + (d.getMonth() === 11 ? 1 : 0)
   const month = frequency === 'year' ? s.getMonth() : (d.getMonth() + 1) % 12
   const day = Math.min(s.getDate(), daysIn(year, month))
@@ -123,6 +124,41 @@ export async function createAutoSave(goalId: string, amount: number, currency: s
   }
   await db.recurring.put(rule)
   await materializeRecurring()
+}
+
+/** Archivia o ripristina un gomitolo; archiviandolo si fermano i suoi accantonamenti automatici. */
+export async function setGoalArchived(goalId: string, archived: boolean) {
+  await db.goals.update(goalId, { archived })
+  if (!archived) return
+  // Accantonamenti automatici fermati; le spese ricorrenti pagate da qui passano al disponibile.
+  const rules = await db.recurring.filter((r) => r.goalId === goalId && r.active).toArray()
+  for (const rule of rules) {
+    if (rule.kind === 'save') await updateSeries({ ...rule, active: false })
+    else await updateSeries({ ...rule, goalId: undefined })
+  }
+  // Quello che resta nel gomitolo torna nel disponibile: un gomitolo archiviato non trattiene soldi.
+  const txs = await db.transactions.where('goalId').equals(goalId).toArray()
+  const now = Date.now()
+  const left = txs
+    .filter((tx) => tx.date <= now)
+    .reduce((s, tx) => s + (tx.kind === 'save' ? tx.mainAmount : tx.kind === 'release' || tx.kind === 'expense' ? -tx.mainAmount : 0), 0)
+  if (left > 0) {
+    const main = (await db.settings.get('main'))?.mainCurrency ?? 'EUR'
+    const account = (await db.accounts.filter((a) => !a.archived && a.currency === main).first()) ?? (await db.accounts.toCollection().first())
+    await db.transactions.put({
+      id: crypto.randomUUID(),
+      kind: 'release',
+      amount: left,
+      currency: main,
+      rate: 1,
+      mainAmount: left,
+      date: now,
+      accountId: account?.id ?? '',
+      goalId,
+      note: '',
+      source: 'manual',
+    })
+  }
 }
 
 /** Elimina la serie: i movimenti passati restano, quelli futuri generati vengono tolti. */

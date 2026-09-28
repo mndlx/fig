@@ -52,12 +52,10 @@ async function boot() {
     if (auth.status !== 'offline' || !owner) return root.render(<Gate kind={auth.status} />)
     offline = true
   }
-  // Scadenze delle serie ricorrenti fino a fine mese: all'avvio, ogni ora e quando si torna sull'app.
-  void materializeRecurring()
-  window.setInterval(() => void materializeRecurring(), 3_600_000)
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') void materializeRecurring()
-  })
+  // Scadenze delle serie ricorrenti fino a fine mese. Con l'accesso attivo le genera la sincronizzazione
+  // dopo aver scaricato le novità (così un dispositivo rimasto indietro non sovrascrive modifiche fatte altrove);
+  // offline si generano subito dai dati locali.
+  if (offline) void materializeRecurring()
   root.render(
     <StrictMode>
       <App offline={offline} />

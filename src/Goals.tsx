@@ -6,7 +6,7 @@ import { db, WOOL, type Frequency, type Goal, type Transaction } from './db'
 import { dateFmt, numberToInput, t, type Key } from './i18n'
 import { IconLeft } from './icons'
 import { formatMoney, fromMinor, parseTyped } from './money'
-import { createAutoSave, updateSeries } from './recurring'
+import { createAutoSave, setGoalArchived, updateSeries } from './recurring'
 
 const DAY = 86_400_000
 const monthYear = () => dateFmt({ month: 'long', year: 'numeric' })
@@ -370,7 +370,7 @@ export function GoalDetail({ data, goal, onBack, onEdit, onAdd, onOpenTx }: Deta
       {s.status === 'reached' && !goal.archived && (
         <div className="card reached">
           <p style={{ margin: '0 0 10px' }}>{t('goals.reachedBanner')}</p>
-          <button className="secondary" onClick={() => db.goals.update(goal.id, { archived: true }).then(onBack)}>
+          <button className="secondary" onClick={() => setGoalArchived(goal.id, true).then(onBack)}>
             {t('common.archive')}
           </button>
         </div>
@@ -536,7 +536,7 @@ export function GoalForm({ data, goal, onDone, template }: FormProps) {
 
   async function toggleArchive() {
     if (!goal) return
-    await db.goals.update(goal.id, { archived: !goal.archived })
+    await setGoalArchived(goal.id, !goal.archived)
     onDone()
   }
 

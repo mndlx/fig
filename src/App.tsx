@@ -10,6 +10,8 @@ import { migrateInitialBalances, saveOpening } from './opening'
 import { Settings } from './Settings'
 import { ThreadView } from './ThreadView'
 import { Trama } from './Trama'
+import { authEnabled } from './auth'
+import { useSyncStatus } from './sync'
 
 const DAY = 86_400_000
 
@@ -184,6 +186,7 @@ export default function App({ offline = false }: { offline?: boolean }) {
   const [sheet, setSheet] = useState<{ editing: Transaction | null; preset?: SheetPreset } | null>(null)
   const [goalForm, setGoalForm] = useState<{ goal: Goal | null; returnTo: Tab; template?: GoalTemplate } | null>(null)
   const [goalDetail, setGoalDetail] = useState<string | null>(null)
+  const syncStatus = useSyncStatus()
   const [freshId, setFreshId] = useState<string | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
   const [onboardingDone, setOnboardingDone] = useState(() => readFlag('fig-onboarding'))
@@ -247,7 +250,9 @@ export default function App({ offline = false }: { offline?: boolean }) {
     setOnboardingDone(true)
   }
 
-  const showOnboarding = !onboardingDone && data.transactions.length === 0 && data.accounts.every((a) => a.initialBalance === 0)
+  // Su un dispositivo nuovo si aspetta la prima sincronizzazione: il saldo iniziale potrebbe già essere sul server.
+  const dataReady = offline || !authEnabled() || syncStatus.lastSync !== null
+  const showOnboarding = dataReady && !onboardingDone && data.transactions.length === 0 && data.accounts.every((a) => a.initialBalance === 0)
 
   const monthNav = (
     <nav className="month-nav" aria-label={t('nav.month')}>

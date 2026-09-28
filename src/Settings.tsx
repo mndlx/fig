@@ -70,11 +70,16 @@ function rateFromInput(text: string): number {
 
 /** Saldo di un conto nella sua valuta: saldo iniziale, entrate, uscite e giroconti (i gomitoli non spostano soldi). */
 function balanceOf(acc: Account, data: AppData): number {
+  const now = Date.now()
+  // Importo nella valuta del conto: uguale se la valuta coincide, il controvalore se il conto è nella valuta principale.
+  const inAccount = (tx: AppData['transactions'][number]) =>
+    tx.currency === acc.currency ? tx.amount : acc.currency === data.mainCurrency.code ? tx.mainAmount : tx.amount
   let b = acc.initialBalance
   for (const tx of data.transactions) {
-    if (tx.kind === 'save' || tx.kind === 'release') continue
-    if (tx.accountId === acc.id) b += tx.kind === 'income' || tx.kind === 'opening' ? tx.amount : -tx.amount
-    if (tx.toAccountId === acc.id) b += tx.amount
+    // Solo movimenti già avvenuti: le scadenze in arrivo non sono ancora uscite dal conto.
+    if (tx.kind === 'save' || tx.kind === 'release' || tx.date > now) continue
+    if (tx.accountId === acc.id) b += tx.kind === 'income' || tx.kind === 'opening' ? inAccount(tx) : -inAccount(tx)
+    if (tx.toAccountId === acc.id) b += inAccount(tx)
   }
   return b
 }
@@ -936,7 +941,22 @@ function MainCurrencyForm({ data, code, onDone }: { data: AppData; code: string;
     if (!(x > 0)) return setError(t('mainCur.rateErr'))
     setBusy(true)
     const cur = new Map(currencies.map((c) => [c.code, c]))
-    await db.transaction('rw', db.transactions, db.accounts, db.settings, async () => {
+    const toTarget = (minor: number) => Math.round(fromMinor(minor, mainCurrency.decimals) * x * 10 ** target.decimals)
+    await db.transaction('rw', [db.transactions, db.accounts, db.settings, db.goals, db.recurring], async () => {
+      // Obiettivi dei gomitoli e ricorrenti sono espressi nella valuta principale: vanno convertiti anche loro.
+      const goals = await db.goals.toArray()
+      await db.goals.bulkPut(goals.map((g) => ({ ...g, target: toTarget(g.target) })))
+      const rules = await db.recurring.toArray()
+      await db.recurring.bulkPut(
+        rules.map((r) => {
+          if (r.currency === target.code) return { ...r, rate: 1, mainAmount: r.amount }
+          // Gli accantonamenti sono nella valuta principale: diventano nella nuova.
+          if (r.kind === 'save') return { ...r, currency: target.code, rate: 1, amount: toTarget(r.amount), mainAmount: toTarget(r.amount) }
+          const from = cur.get(r.currency) ?? mainCurrency
+          const newRate = r.rate * x
+          return { ...r, rate: newRate, mainAmount: convertMinor(r.amount, from, target, newRate) }
+        }),
+      )
       const txs = await db.transactions.toArray()
       await db.transactions.bulkPut(
         txs.map((tx) => {

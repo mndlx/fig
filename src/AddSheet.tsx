@@ -215,6 +215,7 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
       note: note.trim(),
       source: editing?.source ?? 'manual',
       importId: editing?.importId,
+      recurringId: editing?.recurringId,
     }
     await db.transactions.put(tx)
     // Ripetizione: il movimento appena salvato diventa la prima scadenza della serie.
@@ -613,7 +614,7 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
             {editing?.recurringId && (
               <p className="note-box" style={{ margin: 0 }}>
                 <IconRepeat size={14} style={{ verticalAlign: '-2px' }} />{' '}
-                {t('add.recurringInfo', { kind: editing.kind === 'income' ? t('add.kindIncome') : t('add.kindExpense') })}
+                {t('add.recurringInfo', { kind: editing.kind === 'income' ? t('add.kindIncome') : editing.kind === 'save' ? t('add.kindSave') : t('add.kindExpense') })}
               </p>
             )}
             {picker === 'note' && (

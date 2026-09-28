@@ -60,7 +60,23 @@ export function parseDate(value: string): Date | null {
  * Importo come numero con segno: gestisce "1.234,56", "1,234.56", "-12,50",
  * "12,50-", "(12,50)", simboli di valuta e spazi.
  */
-export function parseAmount(value: string): number | null {
+/**
+ * Separatore decimale di una colonna di importi, deciso da tutte le righe:
+ * conta i valori che finiscono con ",12" o ".12". Undefined se non si capisce.
+ */
+export function detectDecimal(values: string[]): ',' | '.' | undefined {
+  let comma = 0
+  let dot = 0
+  for (const v of values) {
+    const s = v.trim()
+    if (/,\d{1,2}\s*-?\)?$/.test(s)) comma++
+    else if (/\.\d{1,2}\s*-?\)?$/.test(s)) dot++
+  }
+  if (comma === 0 && dot === 0) return undefined
+  return comma >= dot ? ',' : '.'
+}
+
+export function parseAmount(value: string, decimal?: ',' | '.'): number | null {
   let v = value.trim().replace(/[€$£\s]|EUR|USD|GBP|CHF/gi, '')
   if (!v) return null
   let negative = false
@@ -79,7 +95,10 @@ export function parseAmount(value: string): number | null {
 
   const lastComma = v.lastIndexOf(',')
   const lastDot = v.lastIndexOf('.')
-  if (lastComma >= 0 && lastDot >= 0) {
+  if (decimal) {
+    // Formato noto dalla colonna: l'altro separatore è quello delle migliaia.
+    v = decimal === ',' ? v.replace(/\./g, '').replace(',', '.') : v.replace(/,/g, '')
+  } else if (lastComma >= 0 && lastDot >= 0) {
     // Il separatore che compare per ultimo è quello dei decimali.
     v = lastComma > lastDot ? v.replace(/\./g, '').replace(',', '.') : v.replace(/,/g, '')
   } else if (lastComma >= 0) {
@@ -144,6 +163,9 @@ export function guessColumns(rows: string[][]): ColumnGuess {
 }
 
 function escapeCell(value: string, delimiter: string): string {
+  // Testi che iniziano con = + - @ verrebbero eseguiti da Excel come formule: li rendo testo semplice.
+  // I numeri negativi ("-12,50") restano numeri.
+  if (/^[=+\-@\t\r]/.test(value) && !/^-?[\d.,]+$/.test(value)) value = `'${value}`
   return /["\n\r]/.test(value) || value.includes(delimiter) ? `"${value.replace(/"/g, '""')}"` : value
 }
 

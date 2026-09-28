@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { guessColumns, parseAmount, parseCsv, parseDate } from './csv'
+import { detectDecimal, guessColumns, parseAmount, parseCsv, parseDate } from './csv'
 import type { AppData } from './data'
 import { db, type Category, type ImportProfile, type Rule, type Transaction } from './db'
 import { IconLeft } from './icons'
@@ -112,14 +112,17 @@ export function ImportCsv({ data, onDone }: Props) {
     )
     const items: { index: number; date: Date; desc: string; kind: 'expense' | 'income'; amount: number; categoryId: string; ruled: boolean; dup: boolean }[] = []
     let skipped = 0
-    rows.slice(headerRow + 1).forEach((r, i) => {
+    const body = rows.slice(headerRow + 1)
+    // Formato dei decimali deciso sull'intera colonna, così "1,500" all'inglese non diventa 1,5.
+    const decimal = detectDecimal(body.flatMap((r) => [r[mapping.amountCol] ?? '', mapping.creditCol >= 0 ? (r[mapping.creditCol] ?? '') : '']))
+    body.forEach((r, i) => {
       const date = parseDate(r[mapping.dateCol] ?? '')
       let value: number | null
       if (mapping.creditCol >= 0) {
-        const debit = parseAmount(r[mapping.amountCol] ?? '')
-        const credit = parseAmount(r[mapping.creditCol] ?? '')
+        const debit = parseAmount(r[mapping.amountCol] ?? '', decimal)
+        const credit = parseAmount(r[mapping.creditCol] ?? '', decimal)
         value = credit ? Math.abs(credit) : debit ? -Math.abs(debit) : null
-      } else value = parseAmount(r[mapping.amountCol] ?? '')
+      } else value = parseAmount(r[mapping.amountCol] ?? '', decimal)
       if (!date || value === null || value === 0) {
         skipped++
         return

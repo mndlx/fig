@@ -1,9 +1,10 @@
-import { db, SYNCED_TABLES } from './db'
+import { db, type SyncedTable } from './db'
+import { quietCurrentTransaction } from './sync'
 import { download, toCsv } from './csv'
 import { builtinName, decimalSep, getLang, locale, t, type Key } from './i18n'
 import { fromMinor } from './money'
 
-const TABLES = ['settings', 'currencies', 'accounts', 'categories', 'goals', 'transactions', 'rules', 'importProfiles'] as const
+const TABLES = ['settings', 'currencies', 'accounts', 'categories', 'goals', 'transactions', 'rules', 'importProfiles', 'recurring'] as const
 
 function stamp(): string {
   return new Date().toISOString().slice(0, 10)
@@ -19,19 +20,35 @@ export async function exportJson() {
 /** Sostituisce tutti i dati con quelli del backup. */
 export async function importJson(text: string) {
   const parsed = JSON.parse(text)
-  if (parsed?.app !== 'fig' || typeof parsed.data !== 'object') throw new Error(t('backup.notFig'))
-  // Tutto ciò che c'era prima va eliminato anche sul server; i record del backup
-  // vengono poi messi in coda come nuovi dalla sincronizzazione.
-  const now = Date.now()
-  for (const table of SYNCED_TABLES) {
-    const keys = await db.table(table).toCollection().primaryKeys()
-    await db.syncQueue.bulkPut(keys.map((id) => ({ tbl: table, id: String(id), deleted: true, at: now })))
+  if (parsed?.app !== 'fig' || !parsed.data || typeof parsed.data !== 'object') throw new Error(t('backup.notFig'))
+
+  // Controllo tutto prima di toccare i dati: un backup rovinato non deve cancellare niente.
+  const incoming = new Map<SyncedTable, Record<string, unknown>[]>()
+  for (const table of TABLES) {
+    const rows: unknown = parsed.data[table] ?? []
+    const pk = table === 'currencies' ? 'code' : 'id'
+    if (!Array.isArray(rows) || !rows.every((r) => r && typeof r === 'object' && typeof (r as Record<string, unknown>)[pk] === 'string'))
+      throw new Error(t('backup.notFig'))
+    incoming.set(table, rows as Record<string, unknown>[])
   }
-  await db.transaction('rw', TABLES.map((table) => db.table(table)), async () => {
+
+  // Un'unica transazione: sostituzione dei dati e coda di sincronizzazione riescono o falliscono insieme.
+  // Al server vanno le eliminazioni dei record che il backup non ha e tutti i record del backup.
+  const now = Date.now()
+  await db.transaction('rw', [...TABLES.map((table) => db.table(table)), db.syncQueue], async () => {
+    quietCurrentTransaction()
     for (const table of TABLES) {
-      await db.table(table).clear()
-      const rows = parsed.data[table]
-      if (Array.isArray(rows) && rows.length) await db.table(table).bulkAdd(rows)
+      const pk = table === 'currencies' ? 'code' : 'id'
+      const rows = incoming.get(table)!
+      const keep = new Set(rows.map((r) => String(r[pk])))
+      const existing = (await db.table(table).toCollection().primaryKeys()).map(String)
+      const gone = existing.filter((k) => !keep.has(k))
+      await db.table(table).bulkDelete(gone)
+      await db.table(table).bulkPut(rows)
+      await db.syncQueue.bulkPut([
+        ...gone.map((id) => ({ tbl: table, id, deleted: true, at: now })),
+        ...[...keep].map((id) => ({ tbl: table, id, deleted: false, at: now })),
+      ])
     }
   })
 }
