@@ -1939,3 +1939,139 @@ select {
   padding: 14px;
   margin-top: 4px;
 }
+
+/* Trama: riepilogo e rifiniture */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 12px;
+}
+.stats.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.stat-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.stat-value {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stat-extra {
+  font-size: 12px;
+  color: var(--muted);
+}
+.stats-foot {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.card-title {
+  font-family: var(--serif);
+  font-size: 18px;
+  font-weight: 400;
+  margin: 0;
+}
+.chip-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.chip-toggle.on {
+  color: var(--ink);
+  background: var(--key);
+  box-shadow: none;
+}
+
+.cell.peak::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink);
+  opacity: 0.55;
+}
+.cell.future {
+  background: repeating-linear-gradient(135deg, var(--key) 0 4px, transparent 4px 7px);
+}
+
+.legend-row {
+  grid-template-columns: 32px 1fr auto;
+}
+.legend-share {
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: 6px;
+  font-weight: 400;
+}
+.delta {
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.delta.up {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.delta.down {
+  color: var(--positive);
+  background: color-mix(in srgb, var(--positive) 14%, transparent);
+}
+.delta.new {
+  color: var(--muted);
+  background: var(--key);
+  font-weight: 400;
+}
+
+.day-list-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  margin: 0 4px 6px;
+  text-transform: capitalize;
+}
+.day-list-row .grow {
+  flex: 1;
+  min-width: 0;
+}
+.day-list-row.due {
+  opacity: 0.6;
+}
+.empty-weave {
+  text-align: center;
+}
+.empty-weave p {
+  margin: 4px 0;
+}
