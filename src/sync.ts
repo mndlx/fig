@@ -1,6 +1,6 @@
 import Dexie, { type Transaction } from 'dexie'
 import { useSyncExternalStore } from 'react'
-import { authEnabled, getToken, type User } from './auth'
+import { signIn, type User } from './auth'
 import { db, openState, SYNCED_TABLES, type QueuedChange, type SyncedTable } from './db'
 
 /**
@@ -140,13 +140,17 @@ interface RemoteChange {
 }
 
 async function api<T>(path: string, body: unknown): Promise<T> {
-  const token = await getToken()
-  if (authEnabled() && !token) throw new Error('not_authenticated')
   const res = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+  // Sessione scaduta: i dati restano in coda sul dispositivo, si rifà il login e si riprende.
+  if (res.status === 401) {
+    signIn()
+    throw new Error('not_signed_in')
+  }
   if (!res.ok) throw new Error(`sync_${res.status}`)
   return res.json() as Promise<T>
 }

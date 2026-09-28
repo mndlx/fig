@@ -19,7 +19,6 @@
     "@tabler/icons-react": "^3.48.0",
     "dexie": "^4.4.6",
     "dexie-react-hooks": "^4.4.0",
-    "keycloak-js": "^26.2.4",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   }

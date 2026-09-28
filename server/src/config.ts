@@ -13,15 +13,24 @@ function loadEnvFile(file: string) {
 
 loadEnvFile(path.resolve('.env'))
 
+const publicUrl = (process.env.PUBLIC_URL ?? 'http://localhost:5174').replace(/\/$/, '')
+
 export const config = {
   port: Number(process.env.PORT ?? 8787),
+  /** Indirizzo pubblico dell'app: da qui si costruisce il redirect "/auth/callback" registrato su Keycloak. */
+  publicUrl,
+  /** Cookie "Secure" solo quando l'app è servita in HTTPS. */
+  secureCookies: publicUrl.startsWith('https://'),
   /** File del database SQLite. */
   dbPath: path.resolve(process.env.DB_PATH ?? 'data/fig.db'),
-  /** Issuer OIDC, es. https://identity.vlabstudio.net/realms/<realm>. */
+  /** Issuer OIDC, es. https://identity.vlabstudio.net/realms/virtual-systems. */
   issuer: (process.env.OIDC_ISSUER ?? '').replace(/\/$/, ''),
-  /** Client dell'app su Keycloak: i token devono essere emessi per lui (claim azp o aud). */
   clientId: process.env.OIDC_CLIENT_ID ?? 'fig',
-  /** Solo per sviluppo locale: salta la verifica del token e usa un utente fisso. */
+  /** Secret del client confidenziale su Keycloak (tab "Credentials"). Non va mai nel repository. */
+  clientSecret: process.env.OIDC_CLIENT_SECRET ?? '',
+  /** Durata della sessione dell'app, rinnovata a ogni utilizzo. */
+  sessionDays: Number(process.env.SESSION_DAYS ?? 30),
+  /** Solo per sviluppo locale: salta il login e usa un utente fisso. */
   authDisabled: process.env.AUTH_DISABLED === '1',
   /** Cartella del frontend compilato, servita insieme alle API. */
   staticDir: path.resolve(process.env.STATIC_DIR ?? '../dist'),

@@ -1,19 +1,8 @@
-import Keycloak from 'keycloak-js'
-
 /**
- * Accesso con Keycloak (OIDC, flusso authorization code + PKCE).
- * Con VITE_AUTH_DISABLED=1 l'app gira senza login, per lo sviluppo locale
- * insieme a AUTH_DISABLED=1 sul server.
+ * Accesso: lo gestisce il server (Keycloak, client confidenziale). La pagina chiede
+ * "chi sono?" a /api/me; se non c'è una sessione va a /auth/login, che porta a Keycloak
+ * e torna con un cookie HttpOnly. Nessun token passa dal JavaScript.
  */
-const AUTH_DISABLED = import.meta.env.VITE_AUTH_DISABLED === '1'
-
-const keycloak = AUTH_DISABLED
-  ? null
-  : new Keycloak({
-      url: import.meta.env.VITE_OIDC_URL ?? 'https://identity.vlabstudio.net',
-      realm: import.meta.env.VITE_OIDC_REALM ?? 'virtual-systems',
-      clientId: import.meta.env.VITE_OIDC_CLIENT_ID ?? 'fig',
-    })
 
 export interface User {
   sub: string
@@ -23,31 +12,34 @@ export interface User {
 
 export type AuthState =
   | { status: 'signed-in'; user: User }
-  /** Senza rete o con il servizio di login irraggiungibile: si usa l'app con i dati locali. */
+  /** Senza rete: si usa l'app con i dati locali. */
   | { status: 'offline' }
   | { status: 'error' }
 
 let user: User | null = null
+let mode: 'oidc' | 'disabled' = 'oidc'
+
+export function signIn() {
+  location.href = `/auth/login?returnTo=${encodeURIComponent(location.pathname)}`
+}
 
 export async function initAuth(): Promise<AuthState> {
-  if (!keycloak) {
-    user = { sub: 'dev-user', name: 'Dev', email: 'dev@localhost' }
-    return { status: 'signed-in', user }
-  }
+  let res: Response
   try {
-    // "login-required": se non c'è una sessione, si va alla pagina di login di Keycloak e si torna qui.
-    const authenticated = await keycloak.init({
-      onLoad: 'login-required',
-      pkceMethod: 'S256',
-      checkLoginIframe: false,
-    })
-    if (!authenticated || !keycloak.tokenParsed?.sub) return { status: 'error' }
-    const p = keycloak.tokenParsed as { sub: string; name?: string; preferred_username?: string; email?: string }
-    user = { sub: p.sub, name: p.name ?? p.preferred_username, email: p.email }
-    return { status: 'signed-in', user }
+    res = await fetch('/api/me', { credentials: 'same-origin' })
   } catch {
-    return navigator.onLine ? { status: 'error' } : { status: 'offline' }
+    return { status: 'offline' }
   }
+  if (res.status === 401) {
+    signIn()
+    // La pagina sta per andare a Keycloak: non c'è altro da fare.
+    return new Promise(() => {})
+  }
+  if (!res.ok) return { status: 'error' }
+  const me = (await res.json()) as User & { auth?: 'oidc' | 'disabled' }
+  mode = me.auth ?? 'oidc'
+  user = { sub: me.sub, name: me.name, email: me.email }
+  return { status: 'signed-in', user }
 }
 
 export function currentUser(): User | null {
@@ -55,26 +47,16 @@ export function currentUser(): User | null {
 }
 
 export function authEnabled(): boolean {
-  return keycloak !== null
+  return mode === 'oidc'
 }
 
-/** Token valido per le API, rinnovato se scade entro 30 secondi. Null se non si è autenticati. */
-export async function getToken(): Promise<string | null> {
-  if (!keycloak) return null
-  if (!keycloak.authenticated) return null
+export async function signOut() {
+  let url = '/'
   try {
-    await keycloak.updateToken(30)
-    return keycloak.token ?? null
+    const res = await fetch('/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+    url = ((await res.json()) as { url?: string }).url ?? '/'
   } catch {
-    return null
+    /* offline: si esce comunque dall'app */
   }
-}
-
-export function signIn() {
-  if (keycloak) void keycloak.login()
-  else location.reload()
-}
-
-export function signOut() {
-  if (keycloak) void keycloak.logout({ redirectUri: `${location.origin}/` })
+  location.href = url
 }

@@ -6,11 +6,7 @@ RUN npm ci
 COPY index.html vite.config.ts tsconfig.json ./
 COPY public public
 COPY src src
-# Valori di default già nel codice; si possono cambiare con --build-arg.
-ARG VITE_OIDC_URL=https://identity.vlabstudio.net
-ARG VITE_OIDC_REALM=virtual-systems
-ARG VITE_OIDC_CLIENT_ID=fig
-ENV VITE_OIDC_URL=$VITE_OIDC_URL VITE_OIDC_REALM=$VITE_OIDC_REALM VITE_OIDC_CLIENT_ID=$VITE_OIDC_CLIENT_ID
+# Il frontend non ha configurazione: login e Keycloak sono tutti nel server (.env).
 RUN npm run build
 
 # ——— Server: API + SQLite, serve anche il frontend ———
@@ -23,7 +19,7 @@ COPY server/src src
 COPY --from=web /app/dist /app/dist
 RUN mkdir -p /data && chown node:node /data
 USER node
-ENV PORT=8080 DB_PATH=/data/fig.db STATIC_DIR=/app/dist
+ENV PORT=8080 DB_PATH=/data/fig.db STATIC_DIR=/app/dist PUBLIC_URL=https://fig.vlabstudio.net
 VOLUME /data
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

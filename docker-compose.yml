@@ -7,9 +7,14 @@ services:
     # Solo in locale: davanti c'è nginx sull'host, che gestisce HTTPS per fig.vlabstudio.net.
     ports:
       - "127.0.0.1:${FIG_PORT:-8096}:8080"
+    # Configurazione e client secret: /opt/fig/.env (modello in server/.env.example).
+    env_file:
+      - path: .env
+        required: true
     environment:
-      OIDC_ISSUER: https://identity.vlabstudio.net/realms/virtual-systems
-      OIDC_CLIENT_ID: fig
+      PORT: 8080
+      DB_PATH: /data/fig.db
+      STATIC_DIR: /app/dist
     volumes:
       - fig-data:/data
 

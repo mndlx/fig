@@ -31,6 +31,26 @@ const MIGRATIONS = [
 
   CREATE INDEX records_by_rev ON records (user_id, rev);
   `,
+  `
+  -- Sessioni dell'app: il browser ha solo un cookie con l'id casuale.
+  CREATE TABLE sessions (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    id_token    TEXT,                       -- per il logout su Keycloak
+    created_at  INTEGER NOT NULL,
+    expires_at  INTEGER NOT NULL
+  );
+  CREATE INDEX sessions_by_user ON sessions (user_id);
+
+  -- Login in corso: state, PKCE verifier e nonce, validi pochi minuti.
+  CREATE TABLE login_states (
+    state       TEXT PRIMARY KEY,
+    verifier    TEXT NOT NULL,
+    nonce       TEXT NOT NULL,
+    return_to   TEXT NOT NULL,
+    created_at  INTEGER NOT NULL
+  );
+  `,
 ]
 
 export function openDb(file: string) {
