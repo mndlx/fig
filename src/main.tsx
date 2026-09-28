@@ -5,6 +5,7 @@ import { initAuth, signIn } from './auth'
 import { db } from './db'
 import { t } from './i18n'
 import { IconFig } from './icons'
+import { materializeRecurring } from './recurring'
 import { startSync } from './sync'
 import './styles.css'
 
@@ -47,6 +48,12 @@ async function boot() {
     if (auth.status !== 'offline' || !owner) return root.render(<Gate kind={auth.status} />)
     offline = true
   }
+  // Scadenze delle serie ricorrenti fino a fine mese: all'avvio, ogni ora e quando si torna sull'app.
+  void materializeRecurring()
+  window.setInterval(() => void materializeRecurring(), 3_600_000)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void materializeRecurring()
+  })
   root.render(
     <StrictMode>
       <App offline={offline} />

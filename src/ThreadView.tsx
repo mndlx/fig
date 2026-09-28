@@ -193,6 +193,11 @@ export function ThreadView(props: Props) {
         let amountText: string
         let amountClass = 'amount'
         switch (tx.kind) {
+          case 'opening':
+            title = t('thread.opening')
+            meta = [accName(tx.accountId), tx.note]
+            amountText = formatMoney(tx.amount, cur)
+            break
           case 'transfer':
             title = `${accName(tx.accountId)} → ${accName(tx.toAccountId)}`
             meta = [t('thread.transfer'), tx.note]
@@ -217,19 +222,28 @@ export function ThreadView(props: Props) {
             if (tx.kind === 'income') amountClass += ' positive'
             if (goal) amountClass += ' from-goal'
         }
-        const metaText = [...meta, timeFormat().format(tx.date)].filter(Boolean).join(' · ')
+        const upcoming = tx.date > Date.now()
+        const metaText = [upcoming ? t('thread.upcoming') : null, tx.recurringId ? '↻' : null, ...meta, timeFormat().format(tx.date)]
+          .filter(Boolean)
+          .join(' · ')
 
         return (
           <button
             key={tx.id}
-            className={`row row-tx${tx.id === freshId ? ' fresh' : ''}`}
+            className={`row row-tx${tx.id === freshId ? ' fresh' : ''}${upcoming ? ' upcoming' : ''}`}
             style={{ height: h }}
             onClick={() => props.onOpen(tx)}
           >
             <svg width={LANE} height={h} aria-hidden="true">
               <path d={pathBetween(0, mid, y)} stroke={tone(row.before)} strokeWidth={width(row.before)} fill="none" strokeLinecap="round" />
               <path d={pathBetween(mid, h, y)} stroke={tone(row.after)} strokeWidth={width(row.after)} fill="none" strokeLinecap="round" />
-              {tx.kind === 'transfer' ? (
+              {tx.kind === 'opening' ? (
+                // Saldo iniziale: un rocchetto, l'inizio del filo di quel conto.
+                <g className="knot">
+                  <circle cx={x} cy={mid} r={10} fill="var(--bg)" stroke="var(--thread)" strokeWidth={2.5} />
+                  <circle cx={x} cy={mid} r={4} fill="var(--thread)" />
+                </g>
+              ) : tx.kind === 'transfer' ? (
                 <circle className="knot" cx={x} cy={mid} r={5} fill="var(--bg)" stroke="var(--muted)" strokeWidth={1.5} />
               ) : tx.kind === 'save' || tx.kind === 'release' ? (
                 <YarnKnot x={x} y={mid} r={Math.max(7, r)} color={goal?.color ?? 'var(--muted)'} />

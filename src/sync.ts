@@ -1,6 +1,7 @@
 import Dexie, { type Transaction } from 'dexie'
 import { useSyncExternalStore } from 'react'
 import { signIn, type User } from './auth'
+import { materializeRecurring } from './recurring'
 import { db, openState, SYNCED_TABLES, type QueuedChange, type SyncedTable } from './db'
 
 /**
@@ -198,6 +199,8 @@ export async function syncNow(): Promise<void> {
       more = res.more || (await db.syncQueue.count()) > 0 && queue.length === BATCH
     }
     setStatus({ state: 'idle', lastSync: Date.now() })
+    // Una serie creata su un altro dispositivo genera qui le sue scadenze.
+    void materializeRecurring()
   } catch {
     setStatus({ state: navigator.onLine ? 'error' : 'offline' })
   } finally {

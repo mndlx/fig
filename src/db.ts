@@ -5,8 +5,12 @@
  * - transfer: giroconto tra conti, non cambia il disponibile
  * - save: soldi messi da parte in un gomitolo (escono dal disponibile)
  * - release: soldi ripresi da un gomitolo (tornano nel disponibile)
+ * - opening: saldo di partenza di un conto (uno per conto, id "opening-<conto>"); non è un'entrata
  */
-export type Kind = 'expense' | 'income' | 'transfer' | 'save' | 'release'
+export type Kind = 'expense' | 'income' | 'transfer' | 'save' | 'release' | 'opening'
+
+/** Id fisso del saldo iniziale di un conto: due dispositivi creano lo stesso record, non doppioni. */
+export const openingId = (accountId: string) => `opening-${accountId}`
 
 /** Un gomitolo: un obiettivo di risparmio, es. "Vacanza a Lisbona". */
 export interface Goal {
@@ -79,6 +83,35 @@ export interface Transaction {
   source: 'manual' | 'import'
   /** Identifica l'import CSV da cui proviene il movimento. */
   importId?: string
+  /** Serie ricorrente che ha generato il movimento. */
+  recurringId?: string
+}
+
+export type Frequency = 'week' | 'month' | 'year'
+
+/**
+ * Uscita o entrata ricorrente (affitto, stipendio, abbonamento). I movimenti vengono
+ * generati fino a fine mese corrente, con id "<serie>-<aaaa-mm-gg>" così due dispositivi
+ * non creano doppioni.
+ */
+export interface Recurring {
+  id: string
+  kind: 'expense' | 'income'
+  amount: number
+  currency: string
+  rate: number
+  /** Controvalore nella valuta principale, fissato alla creazione della serie. */
+  mainAmount: number
+  categoryId: string
+  accountId: string
+  goalId?: string
+  note: string
+  frequency: Frequency
+  /** Giorno di partenza della serie (timestamp): fissa giorno del mese / della settimana. */
+  start: number
+  /** Prossima scadenza non ancora generata (timestamp). */
+  next: number
+  active: boolean
 }
 
 /** "Se la descrizione contiene X, usa la categoria Y" per l'import CSV. */
@@ -123,7 +156,7 @@ export interface SyncMeta {
 export const openState = { opening: true }
 
 /** Tabelle dell'app che si sincronizzano col server. */
-export const SYNCED_TABLES = ['settings', 'currencies', 'accounts', 'categories', 'goals', 'transactions', 'rules', 'importProfiles'] as const
+export const SYNCED_TABLES = ['settings', 'currencies', 'accounts', 'categories', 'goals', 'transactions', 'rules', 'importProfiles', 'recurring'] as const
 export type SyncedTable = (typeof SYNCED_TABLES)[number]
 
 export const db = new Dexie('fig') as Dexie & {
@@ -136,6 +169,7 @@ export const db = new Dexie('fig') as Dexie & {
   importProfiles: EntityTable<ImportProfile, 'id'>
   goals: EntityTable<Goal, 'id'>
   syncQueue: Table<QueuedChange, [string, string]>
+  recurring: EntityTable<Recurring, 'id'>
   syncMeta: EntityTable<SyncMeta, 'key'>
 }
 
@@ -250,6 +284,11 @@ export const DEFAULT_CURRENCIES: Currency[] = [
 db.version(5).stores({
   syncQueue: '[tbl+id]',
   syncMeta: 'key',
+})
+
+db.version(6).stores({
+  recurring: 'id',
+  transactions: 'id, date, categoryId, accountId, goalId, recurringId',
 })
 
 db.on('ready', () => {

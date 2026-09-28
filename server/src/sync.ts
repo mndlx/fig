@@ -3,7 +3,7 @@ import { config } from './config.ts'
 import type { Db } from './db.ts'
 
 /** Tabelle dell'app che si sincronizzano. Tutto il resto viene rifiutato. */
-const TABLES = new Set(['settings', 'currencies', 'accounts', 'categories', 'goals', 'transactions', 'rules', 'importProfiles'])
+const TABLES = new Set(['settings', 'currencies', 'accounts', 'categories', 'goals', 'transactions', 'rules', 'importProfiles', 'recurring'])
 const MAX_CHANGES = 5000
 const MAX_RECORD_BYTES = 64 * 1024
 const PAGE = 2000

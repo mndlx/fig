@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { db, type Account, type Category, type Currency, type Goal, type Transaction } from './db'
+import { db, type Account, type Category, type Currency, type Goal, type Recurring, type Transaction } from './db'
 
 export interface AppData {
   mainCurrency: Currency
@@ -7,23 +7,25 @@ export interface AppData {
   accounts: Account[]
   categories: Category[]
   goals: Goal[]
+  recurring: Recurring[]
   transactions: Transaction[]
 }
 
 /** Tutti i dati dell'app, aggiornati in tempo reale a ogni modifica del database. */
 export function useAppData(): AppData | undefined {
   return useLiveQuery(async () => {
-    const [settings, currencies, accounts, categories, goals, transactions] = await Promise.all([
+    const [settings, currencies, accounts, categories, goals, recurring, transactions] = await Promise.all([
       db.settings.get('main'),
       db.currencies.toArray(),
       db.accounts.toArray().then((list) => list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))),
       db.categories.orderBy('order').toArray(),
       db.goals.orderBy('order').toArray(),
+      db.recurring.toArray(),
       db.transactions.orderBy('date').toArray(),
     ])
     const mainCode = settings?.mainCurrency ?? 'EUR'
     const mainCurrency = currencies.find((c) => c.code === mainCode) ?? { code: mainCode, symbol: mainCode, decimals: 2 }
-    return { mainCurrency, currencies, accounts, categories, goals, transactions }
+    return { mainCurrency, currencies, accounts, categories, goals, recurring, transactions }
   })
 }
 
@@ -35,6 +37,7 @@ export function signedMain(tx: Transaction): number {
   switch (tx.kind) {
     case 'income':
     case 'release':
+    case 'opening':
       return tx.mainAmount
     case 'expense':
       return tx.goalId ? 0 : -tx.mainAmount

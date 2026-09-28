@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AddSheet, type SheetPreset } from './AddSheet'
 import { goalBalances, signedMain, useAppData, type AppData } from './data'
 import { db, type Currency, type Goal, type Transaction } from './db'
-import { GoalForm, Goals } from './Goals'
+import { GoalForm, Goals, type GoalTemplate } from './Goals'
 import { builtinName, dateFmt, getLang, readLangSetting, resolveLang, setLang, t, writeLangSetting, type LangSetting } from './i18n'
 import { IconFig, IconGear, IconLeft, IconLoom, IconPlus, IconRight, IconThread, IconYarn } from './icons'
 import { formatMoney, moneyParts, parseTyped } from './money'
+import { migrateInitialBalances, saveOpening } from './opening'
 import { Settings } from './Settings'
 import { ThreadView } from './ThreadView'
 import { Trama } from './Trama'
@@ -48,6 +49,7 @@ export function computeMonth(data: AppData, monthOffset: number): MonthView {
   }
 
   let income = 0
+  let opening = 0
   let expense = 0
   let saved = 0
   let balanceNow = startBalance
@@ -55,6 +57,8 @@ export function computeMonth(data: AppData, monthOffset: number): MonthView {
   let outOfPocket = 0
   for (const tx of monthTx) {
     if (tx.kind === 'income') income += tx.mainAmount
+    // Il saldo iniziale non è un'entrata, ma fa parte delle risorse del mese.
+    if (tx.kind === 'opening') opening += tx.mainAmount
     if (tx.kind === 'expense') expense += tx.mainAmount
     if (tx.kind === 'save') saved += tx.mainAmount
     if (tx.kind === 'release') saved -= tx.mainAmount
@@ -83,7 +87,7 @@ export function computeMonth(data: AppData, monthOffset: number): MonthView {
     forecast = Math.round(endBalance - Math.max(0, (spentSoFar / elapsedDays) * remainingDays - futureSpent))
   }
 
-  const pool = startBalance + income
+  const pool = startBalance + income + opening
   const usedShare = pool > 0 ? outOfPocket / pool : outOfPocket > 0 ? 1 : 0
 
   return { start, end, isCurrent, monthTx, startBalance, income, expense, saved, balanceNow, endBalance, forecast, elapsed, daysLeft, usedShare }
@@ -115,12 +119,12 @@ function Onboarding({ data, onSkip }: { data: AppData; onSkip: () => void }) {
   const [values, setValues] = useState<Record<string, string>>({})
 
   async function save() {
-    await db.accounts.bulkPut(
-      accounts.map((a) => {
-        const v = parseTyped(values[a.id] ?? '', data.mainCurrency.decimals)
-        return { ...a, initialBalance: v, initialMain: v }
-      }),
-    )
+    // Un nodo "Saldo iniziale" per ogni conto compilato, modificabile dal filo.
+    const now = Date.now()
+    for (const a of accounts) {
+      const v = parseTyped(values[a.id] ?? '', data.mainCurrency.decimals)
+      if (v !== 0) await saveOpening(a, v, v, now)
+    }
     onSkip()
   }
 
@@ -178,7 +182,7 @@ export default function App({ offline = false }: { offline?: boolean }) {
   const [tab, setTab] = useState<Tab>('filo')
   const [monthOffset, setMonthOffset] = useState(0)
   const [sheet, setSheet] = useState<{ editing: Transaction | null; preset?: SheetPreset } | null>(null)
-  const [goalForm, setGoalForm] = useState<{ goal: Goal | null; returnTo: Tab } | null>(null)
+  const [goalForm, setGoalForm] = useState<{ goal: Goal | null; returnTo: Tab; template?: GoalTemplate } | null>(null)
   const [freshId, setFreshId] = useState<string | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
   const [onboardingDone, setOnboardingDone] = useState(() => readFlag('fig-onboarding'))
@@ -192,6 +196,12 @@ export default function App({ offline = false }: { offline?: boolean }) {
   }, [data])
 
   useEffect(() => () => window.clearTimeout(toastTimer.current), [])
+
+  // Saldi iniziali delle versioni precedenti (campo nascosto del conto) → nodi sul filo.
+  const hasLegacyBalances = !!data?.accounts.some((a) => a.initialBalance !== 0 || a.initialMain !== 0)
+  useEffect(() => {
+    if (hasLegacyBalances) void migrateInitialBalances()
+  }, [hasLegacyBalances])
 
   if (!data || !view) return <div className="app" />
 
@@ -265,7 +275,16 @@ export default function App({ offline = false }: { offline?: boolean }) {
       onSaved={(tx, previous) => {
         setSheet(null)
         setFreshId(tx.id)
-        showToast(previous ? t('toast.edited') : describe(tx), () => (previous ? db.transactions.put(previous) : db.transactions.delete(tx.id)))
+        showToast(previous ? t('toast.edited') : describe(tx), async () => {
+          if (previous) return db.transactions.put(previous)
+          // Annullare una nuova ricorrente toglie tutta la serie appena creata.
+          const rule = tx.recurringId ? await db.recurring.get(tx.recurringId) : undefined
+          if (rule) {
+            await db.transactions.where('recurringId').equals(rule.id).delete()
+            await db.recurring.delete(rule.id)
+          }
+          return db.transactions.delete(tx.id)
+        })
         // Nel filo porta la vista sul mese del movimento appena salvato.
         if (tab === 'filo' || tab === 'trama') {
           const now = new Date()
@@ -303,6 +322,7 @@ export default function App({ offline = false }: { offline?: boolean }) {
         <GoalForm
           data={data}
           goal={goalForm.goal}
+          template={goalForm.template}
           onDone={() => {
             setTab(goalForm.returnTo)
             setGoalForm(null)
@@ -419,7 +439,7 @@ export default function App({ offline = false }: { offline?: boolean }) {
       )}
 
       {tab === 'goals' && (
-        <Goals data={data} onAdd={(preset) => setSheet({ editing: null, preset })} onEdit={(goal) => setGoalForm({ goal, returnTo: 'goals' })} />
+        <Goals data={data} onAdd={(preset) => setSheet({ editing: null, preset })} onEdit={(goal, template) => setGoalForm({ goal, returnTo: 'goals', template })} />
       )}
 
       <div className="dock-wrap">

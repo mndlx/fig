@@ -1,4 +1,5 @@
-import { useId, useMemo, useState } from 'react'
+import { IconArrowBackUp, IconArrowDownRight, IconCar, IconGift, IconPlane, IconShoppingBag, IconUmbrella } from '@tabler/icons-react'
+import { useId, useMemo, useState, type CSSProperties } from 'react'
 import type { SheetPreset } from './AddSheet'
 import { goalBalances, type AppData } from './data'
 import { db, WOOL, type Goal, type Transaction } from './db'
@@ -60,10 +61,81 @@ function monthsUntil(deadline: number): number {
   return (d.getFullYear() - now.getFullYear()) * 12 + d.getMonth() - now.getMonth() + 1
 }
 
+export interface GoalTemplate {
+  name: string
+  color: string
+}
+
 interface GoalsProps {
   data: AppData
   onAdd: (preset: SheetPreset) => void
-  onEdit: (goal: Goal | null) => void
+  onEdit: (goal: Goal | null, template?: GoalTemplate) => void
+}
+
+const TEMPLATE_STYLE = [
+  { color: '#2F6F73', icon: IconPlane },
+  { color: '#D9A441', icon: IconUmbrella },
+  { color: '#D28A8A', icon: IconGift },
+  { color: '#4F6D8F', icon: IconCar },
+]
+
+/** Stato vuoto: cosa sono i gomitoli, come funzionano e modelli pronti da cui partire. */
+function GoalsEmpty({ onEdit }: { onEdit: GoalsProps['onEdit'] }) {
+  const names = t('goals.templates').split('|')
+  const steps = [
+    { icon: IconArrowDownRight, title: t('goals.how1'), body: t('goals.how1Body') },
+    { icon: IconShoppingBag, title: t('goals.how2'), body: t('goals.how2Body') },
+    { icon: IconArrowBackUp, title: t('goals.how3'), body: t('goals.how3Body') },
+  ]
+  return (
+    <section className="goals-empty">
+      <div className="goals-empty-art" aria-hidden="true">
+        <YarnBall color="#7B4B6A" progress={0.62} size={120} />
+        <span className="float a">
+          <YarnBall color="#D9A441" progress={0.3} size={44} />
+        </span>
+        <span className="float b">
+          <YarnBall color="#2F6F73" progress={0.8} size={34} />
+        </span>
+      </div>
+      <h2 className="goals-empty-title">{t('goals.emptyTitle')}</h2>
+      <p className="goals-empty-body">{t('goals.emptyBody')}</p>
+
+      <ol className="how">
+        {steps.map((s, i) => (
+          <li key={i}>
+            <span className="how-icon">
+              <s.icon size={18} />
+            </span>
+            <span>
+              <strong>{s.title}</strong>
+              <span className="muted small" style={{ display: 'block' }}>
+                {s.body}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ol>
+
+      <p className="section-title">{t('goals.templatesTitle')}</p>
+      <div className="templates">
+        {names.map((name, i) => {
+          const style = TEMPLATE_STYLE[i % TEMPLATE_STYLE.length]
+          return (
+            <button key={name} className="template" style={{ '--c': style.color } as CSSProperties} onClick={() => onEdit(null, { name, color: style.color })}>
+              <span className="template-icon">
+                <style.icon size={22} />
+              </span>
+              <span>{name}</span>
+            </button>
+          )
+        })}
+      </div>
+      <button className="primary wide" onClick={() => onEdit(null)}>
+        {t('goals.createCta')}
+      </button>
+    </section>
+  )
 }
 
 export function Goals({ data, onAdd, onEdit }: GoalsProps) {
@@ -135,21 +207,27 @@ export function Goals({ data, onAdd, onEdit }: GoalsProps) {
   return (
     <main>
       <h1 className="screen-title">{t('goals.title')}</h1>
-      <p className="muted small" style={{ margin: '0 0 16px' }}>
-        {active.length > 0 ? t('goals.summary', { amount: formatMoney(total, mainCurrency) }) : t('goals.intro')}
-      </p>
+      {active.length === 0 ? (
+        <GoalsEmpty onEdit={onEdit} />
+      ) : (
+        <>
+          <p className="muted small" style={{ margin: '0 0 16px' }}>
+            {t('goals.summary', { amount: formatMoney(total, mainCurrency) })}
+          </p>
 
-      {active.map(card)}
+          {active.map(card)}
 
-      <button className="card new-goal" onClick={() => onEdit(null)}>
-        <span className="new-goal-plus">+</span>
-        <span>
-          <span className="goal-name">{t('goals.new')}</span>
-          <span className="muted small" style={{ display: 'block' }}>
-            {t('goals.newHint')}
-          </span>
-        </span>
-      </button>
+          <button className="card new-goal" onClick={() => onEdit(null)}>
+            <span className="new-goal-plus">+</span>
+            <span>
+              <span className="goal-name">{t('goals.new')}</span>
+              <span className="muted small" style={{ display: 'block' }}>
+                {t('goals.newHint')}
+              </span>
+            </span>
+          </button>
+        </>
+      )}
 
       {archived.length > 0 && (
         <>
@@ -168,18 +246,19 @@ interface FormProps {
   goal: Goal | null
   onDone: () => void
   onOpenTx: (tx: Transaction) => void
+  template?: GoalTemplate
 }
 
-export function GoalForm({ data, goal, onDone, onOpenTx }: FormProps) {
+export function GoalForm({ data, goal, onDone, onOpenTx, template }: FormProps) {
   const { mainCurrency, goals, transactions } = data
-  const [name, setName] = useState(goal?.name ?? '')
+  const [name, setName] = useState(goal?.name ?? template?.name ?? '')
   const [target, setTarget] = useState(goal && goal.target > 0 ? numberToInput(fromMinor(goal.target, mainCurrency.decimals)) : '')
   const [deadline, setDeadline] = useState(() => {
     if (!goal?.deadline) return ''
     const d = new Date(goal.deadline)
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
   })
-  const [color, setColor] = useState(goal?.color ?? WOOL[(goals.length * 3 + 5) % WOOL.length])
+  const [color, setColor] = useState(goal?.color ?? template?.color ?? WOOL[(goals.length * 3 + 5) % WOOL.length])
   const [error, setError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const history = transactions.filter((tx) => tx.goalId === goal?.id).reverse()

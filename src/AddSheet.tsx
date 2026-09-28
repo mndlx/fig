@@ -1,18 +1,22 @@
-import { IconBackspace, IconCalendar, IconCheck, IconChevronDown, IconLock, IconNote, IconPlus, IconWallet, IconX } from '@tabler/icons-react'
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { IconArrowLeft, IconBackspace, IconCalendar, IconCheck, IconChevronDown, IconNote, IconPlus, IconRepeat, IconWallet, IconX } from '@tabler/icons-react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CategoryIcon } from './catIcons'
 import { goalBalances, type AppData } from './data'
-import { db, WOOL, type Kind, type Transaction } from './db'
+import { db, WOOL, type Frequency, type Kind, type Transaction } from './db'
+import { createSeries } from './recurring'
 import { YarnBall } from './Goals'
 import { builtinName, dateFmt, decimalSep, t, type Key } from './i18n'
 import { convertMinor, fetchRate, formatMoney, fromMinor, moneyParts, parseInput } from './money'
 import { rankCategories } from './suggest'
 
-type Mode = 'expense' | 'income' | 'goal' | 'transfer'
-type Picker = 'date' | 'account' | 'currency' | 'payFrom' | 'note' | 'newCat' | null
+type Mode = 'expense' | 'income' | 'goal' | 'transfer' | 'opening'
+type Step = 'pick' | 'amount'
+type Picker = 'date' | 'account' | 'currency' | 'payFrom' | 'note' | 'newCat' | 'repeat' | null
+type Repeat = 'none' | Frequency
+const REPEATS: Repeat[] = ['none', 'week', 'month', 'year']
 
 export interface SheetPreset {
-  mode: Mode
+  mode: Exclude<Mode, 'opening'>
   goalDir?: 'save' | 'release'
   goalId?: string
 }
@@ -27,8 +31,15 @@ interface Props {
   onNewGoal: () => void
 }
 
-const MODES: Mode[] = ['expense', 'income', 'goal', 'transfer']
+const MODES: Exclude<Mode, 'opening'>[] = ['expense', 'income', 'goal', 'transfer']
 const QUICK_ICONS = ['dots', 'cart', 'kitchen', 'coffee', 'car', 'plane', 'gym', 'pet', 'book', 'movie', 'gift', 'health', 'phone', 'bag']
+
+const PICK_TITLE: Record<Exclude<Mode, 'opening'>, Key> = {
+  expense: 'add.q.expense',
+  income: 'add.q.income',
+  goal: 'add.q.goal',
+  transfer: 'add.q.transfer',
+}
 
 function toDateInput(ts: number): string {
   const d = new Date(ts)
@@ -38,7 +49,7 @@ function toDateInput(ts: number): string {
 
 /** Importo salvato → stringa del tastierino (sempre con "." come separatore interno). */
 function inputFromMinor(minor: number, decimals: number): string {
-  const text = fromMinor(minor, decimals).toFixed(decimals)
+  const text = fromMinor(Math.abs(minor), decimals).toFixed(decimals)
   if (decimals === 0) return text
   return text.replace(/0+$/, '').replace(/\.$/, '')
 }
@@ -47,24 +58,35 @@ function modeOf(kind: Kind): Mode {
   return kind === 'save' || kind === 'release' ? 'goal' : kind
 }
 
+/**
+ * Inserimento in due passi:
+ * 1. "Per cosa?": categoria, gomitolo o conto di destinazione, a schermo pieno;
+ * 2. "Quanto?": importo col tastierino, dettagli facoltativi e Salva.
+ * In modifica si parte dal passo 2; la scelta fatta resta in alto e toccandola si torna al passo 1.
+ */
 export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, onNewGoal }: Props) {
   const { accounts, categories, currencies, mainCurrency, transactions, goals } = data
   const activeAccounts = accounts.filter((a) => !a.archived)
   const activeGoals = goals.filter((g) => !g.archived)
   const balances = useMemo(() => goalBalances(transactions), [transactions])
-  const accName = (id: string) => {
+  const accName = (id?: string) => {
     const a = accounts.find((x) => x.id === id)
     return a ? builtinName(a, 'acc') : '?'
   }
 
   const [mode, setMode] = useState<Mode>(editing ? modeOf(editing.kind) : (preset?.mode ?? 'expense'))
   const [goalDir, setGoalDir] = useState<'save' | 'release'>(editing?.kind === 'release' ? 'release' : (preset?.goalDir ?? 'save'))
-  // La scelta che sblocca il tastierino: categoria, gomitolo o conto di destinazione.
   const [selected, setSelected] = useState<string | null>(() => {
-    if (editing) return editing.kind === 'transfer' ? (editing.toAccountId ?? null) : editing.kind === 'save' || editing.kind === 'release' ? (editing.goalId ?? null) : (editing.categoryId ?? null)
+    if (editing) {
+      if (editing.kind === 'transfer') return editing.toAccountId ?? null
+      if (editing.kind === 'save' || editing.kind === 'release') return editing.goalId ?? null
+      if (editing.kind === 'opening') return editing.accountId
+      return editing.categoryId ?? null
+    }
     if (preset?.mode === 'goal') return preset.goalId ?? null
     return null
   })
+  const [step, setStep] = useState<Step>(selected ? 'amount' : 'pick')
   const [payFrom, setPayFrom] = useState<string | null>(
     editing ? (editing.kind === 'expense' ? (editing.goalId ?? null) : null) : preset?.mode === 'expense' ? (preset.goalId ?? null) : null,
   )
@@ -74,11 +96,12 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
   // I gomitoli sono sempre nella valuta principale.
   const currency = mode === 'goal' ? mainCurrency : pickedCurrency
   const [input, setInput] = useState(editing ? inputFromMinor(editing.amount, currency.decimals) : '')
+  const [negative, setNegative] = useState(editing?.kind === 'opening' && editing.amount < 0)
   const [date, setDate] = useState(toDateInput(editing?.date ?? Date.now()))
   const [note, setNote] = useState(editing?.note ?? '')
-  const [rate, setRate] = useState(editing && editing.currency !== mainCurrency.code ? String(editing.rate) : '')
+  const [rate, setRate] = useState(editing && editing.currency !== mainCurrency.code ? String(Math.abs(editing.rate)) : '')
   const [picker, setPicker] = useState<Picker>(null)
-  const [showAll, setShowAll] = useState(false)
+  const [repeat, setRepeat] = useState<Repeat>('none')
   const [newCat, setNewCat] = useState({ name: '', icon: 'dots' })
   const [error, setError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -88,7 +111,6 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
 
   const foreign = currency.code !== mainCurrency.code
   const kind: Kind = mode === 'goal' ? goalDir : mode
-  const unlocked = selected !== null
 
   useEffect(() => {
     if (!foreign) return
@@ -106,25 +128,26 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
     () => rankCategories(categories.filter((c) => c.kind === catKind && !c.archived), transactions, new Date()),
     [categories, transactions, catKind],
   )
-  // Due righe da quattro: sette categorie più "Altre", oppure tutte.
-  const visibleCats = showAll || ranked.length <= 8 ? ranked : ranked.slice(0, 7)
+  const suggested = fromHabits ? ranked.slice(0, 4) : []
+  const rest = fromHabits ? ranked.slice(4) : ranked
 
-  function switchMode(m: Mode) {
+  function switchMode(m: Exclude<Mode, 'opening'>) {
     setMode(m)
     setSelected(null)
     setError('')
-    setShowAll(false)
     setPicker(null)
   }
 
-  function select(id: string) {
+  /** Scelta fatta: si passa all'importo. */
+  function choose(id: string) {
     setSelected(id)
     setError('')
     setPicker(null)
+    setStep('amount')
   }
 
   function press(key: string) {
-    if (!unlocked) return
+    if (step !== 'amount') return
     setError('')
     setInput((prev) => {
       if (key === '⌫') return prev.slice(0, -1)
@@ -148,16 +171,16 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
       if (/^[0-9]$/.test(e.key)) press(e.key)
       else if (e.key === ',' || e.key === '.') press('.')
       else if (e.key === 'Backspace') press('⌫')
-      else if (e.key === 'Enter') save()
+      else if (e.key === 'Enter' && step === 'amount') save()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
 
   async function save() {
-    if (!selected) return
-    const amount = parseInput(input, currency.decimals)
-    if (amount <= 0) return setError(t('err.amount'))
+    if (!selected) return setStep('pick')
+    const amount = parseInput(input, currency.decimals) * (mode === 'opening' && negative ? -1 : 1)
+    if (amount === 0 || (mode !== 'opening' && amount < 0)) return setError(t('err.amount'))
     if (kind === 'transfer' && selected === accountId) return setError(t('err.sameAccount'))
     const rateValue = foreign ? Number(rate.replace(',', '.')) : 1
     if (!(rateValue > 0)) return setError(t('err.rate', { from: currency.code, to: mainCurrency.code }))
@@ -183,10 +206,10 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
       amount,
       currency: currency.code,
       rate: rateValue,
-      mainAmount: foreign ? convertMinor(amount, currency, mainCurrency, rateValue) : amount,
+      mainAmount: foreign ? Math.sign(amount) * convertMinor(Math.abs(amount), currency, mainCurrency, rateValue) : amount,
       date: when.getTime(),
       categoryId: kind === 'expense' || kind === 'income' ? selected : undefined,
-      accountId,
+      accountId: mode === 'opening' ? selected : accountId,
       toAccountId: kind === 'transfer' ? selected : undefined,
       goalId: mode === 'goal' ? selected : kind === 'expense' ? (payFrom ?? undefined) : undefined,
       note: note.trim(),
@@ -194,8 +217,10 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
       importId: editing?.importId,
     }
     await db.transactions.put(tx)
+    // Ripetizione: il movimento appena salvato diventa la prima scadenza della serie.
+    const saved = !editing && repeat !== 'none' ? await createSeries(tx, repeat) : tx
     navigator.vibrate?.(8)
-    onSaved(tx, editing)
+    onSaved(saved, editing)
   }
 
   async function createCategory() {
@@ -213,7 +238,7 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
       archived: false,
     })
     setNewCat({ name: '', icon: 'dots' })
-    select(id)
+    choose(id)
   }
 
   async function remove() {
@@ -226,8 +251,20 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
   // ——— Importo ———
   const amountMinor = parseInput(input, currency.decimals)
   const shown = moneyParts(amountMinor, currency)
-  const typed = input ? input.replace('.', decimalSep()) : '0'
+  const typed = (negative ? '−' : '') + (input ? input.replace('.', decimalSep()) : '0')
   const amountText = shown.symbolFirst ? `${shown.symbol}${shown.symbol.length > 1 ? ' ' : ''}${typed}` : `${typed} ${shown.symbol}`
+
+  // ——— Scelta fatta, per il riepilogo in alto nel passo 2 ———
+  let chosen: { label: string; color: string; icon: ReactNode } | null = null
+  if (selected && (mode === 'expense' || mode === 'income')) {
+    const c = categories.find((x) => x.id === selected)
+    if (c) chosen = { label: builtinName(c, 'cat'), color: c.color, icon: <CategoryIcon name={c.icon} size={18} /> }
+  } else if (selected && mode === 'goal') {
+    const g = goals.find((x) => x.id === selected)
+    if (g) chosen = { label: `${goalDir === 'save' ? t('add.putAside') : t('add.takeBack')} · ${g.name}`, color: g.color, icon: <YarnBall color={g.color} progress={0.6} size={22} /> }
+  } else if (selected && mode === 'transfer') {
+    chosen = { label: `${accName(accountId)} → ${accName(selected)}`, color: 'var(--thread)', icon: <IconWallet size={18} /> }
+  }
 
   // ——— Pillole di contesto ———
   const todayKey = toDateInput(Date.now())
@@ -235,10 +272,24 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
   const dateLabel =
     date === todayKey ? t('common.today') : date === yesterdayKey ? t('common.yesterday') : dateFmt({ day: 'numeric', month: 'short' }).format(new Date(date))
   const payFromGoal = activeGoals.find((g) => g.id === payFrom)
+  const accent = chosen?.color ?? 'var(--fig)'
 
-  const lockKey: Key = mode === 'goal' ? 'add.locked.goal' : mode === 'transfer' ? 'add.locked.account' : 'add.locked.category'
-  const selectedCat = categories.find((c) => c.id === selected)
-  const accent = mode === 'goal' ? (goals.find((g) => g.id === selected)?.color ?? 'var(--fig)') : (selectedCat?.color ?? 'var(--fig)')
+  const tile = (id: string, label: string, color: string, icon: ReactNode, sub?: string) => (
+    <button key={id} className={`tile${selected === id ? ' on' : ''}`} style={{ '--c': color } as CSSProperties} onClick={() => choose(id)}>
+      {icon}
+      <span className="tile-name">{label}</span>
+      {sub && <span className="tile-sub">{sub}</span>}
+    </button>
+  )
+  const catTile = (c: (typeof categories)[number]) =>
+    tile(
+      c.id,
+      builtinName(c, 'cat'),
+      c.color,
+      <span className="tile-icon">
+        <CategoryIcon name={c.icon} />
+      </span>,
+    )
 
   return (
     <div className="backdrop" onClick={onClose}>
@@ -265,298 +316,344 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
           </button>
         </div>
 
-        <div className="mode-tabs" role="tablist">
-          {MODES.map((m) => (
-            <button key={m} role="tab" aria-selected={mode === m} className={mode === m ? 'on' : ''} onClick={() => switchMode(m)}>
-              {t(`mode.${m}` as Key)}
-            </button>
-          ))}
-        </div>
+        {mode === 'opening' ? (
+          <div className="opening-head">
+            <p className="step-title">{t('add.opening', { account: accName(selected ?? undefined) })}</p>
+            <p className="muted small">{t('add.openingHint')}</p>
+          </div>
+        ) : (
+          <>
+            {step === 'pick' && (
+              <div className="mode-tabs" role="tablist">
+                {MODES.map((m) => (
+                  <button key={m} role="tab" aria-selected={mode === m} className={mode === m ? 'on' : ''} onClick={() => switchMode(m)}>
+                    {t(`mode.${m}` as Key)}
+                  </button>
+                ))}
+              </div>
+            )}
+            <ol className="stepper" aria-label={t('add.steps')}>
+              <li className={step === 'pick' ? 'current' : 'done'}>
+                <button onClick={() => setStep('pick')} disabled={step === 'pick'}>
+                  <span className="step-dot">{step === 'pick' ? '1' : <IconCheck size={12} stroke={3} />}</span>
+                  {t('add.step1')}
+                </button>
+              </li>
+              <li className="step-line" aria-hidden="true" />
+              <li className={step === 'amount' ? 'current' : ''}>
+                <button onClick={() => selected && setStep('amount')} disabled={!selected || step === 'amount'}>
+                  <span className="step-dot">2</span>
+                  {t('add.step2')}
+                </button>
+              </li>
+            </ol>
+          </>
+        )}
 
-        <div className={`amount-hero${unlocked ? '' : ' locked'}`}>
-          <span className={`amount-big${input ? '' : ' placeholder'}`}>{amountText}</span>
-          {foreign && Number(rate) > 0 && amountMinor > 0 && (
-            <span className="amount-converted">≈ {formatMoney(convertMinor(amountMinor, currency, mainCurrency, Number(rate)), mainCurrency)}</span>
-          )}
-        </div>
+        {step === 'pick' && mode !== 'opening' && (
+          <div className="step-body step-pick" key={`pick-${mode}`}>
+            <p className="step-title">{t(PICK_TITLE[mode])}</p>
 
-        <div className="ctx-row">
-          <button className={`ctx${picker === 'date' ? ' on' : ''}`} onClick={() => setPicker(picker === 'date' ? null : 'date')}>
-            <IconCalendar size={15} />
-            {dateLabel}
-          </button>
-          {mode !== 'goal' && (
-            <button className={`ctx${picker === 'account' ? ' on' : ''}`} onClick={() => setPicker(picker === 'account' ? null : 'account')}>
-              <IconWallet size={15} />
-              {mode === 'transfer' ? `${t('add.from')} ${accName(accountId)}` : accName(accountId)}
-            </button>
-          )}
-          {mode === 'expense' && activeGoals.length > 0 && (
-            <button
-              className={`ctx${picker === 'payFrom' ? ' on' : ''}${payFromGoal ? ' tinted' : ''}`}
-              style={payFromGoal ? ({ '--c': payFromGoal.color } as CSSProperties) : undefined}
-              onClick={() => setPicker(picker === 'payFrom' ? null : 'payFrom')}
-            >
-              {t('add.payFrom')}: {payFromGoal ? payFromGoal.name : t('add.payAvailable')}
-            </button>
-          )}
-          <button className={`ctx${picker === 'note' ? ' on' : ''}`} onClick={() => setPicker(picker === 'note' ? null : 'note')}>
-            <IconNote size={15} />
-            {note ? <span className="ctx-note">{note}</span> : t('add.addNote')}
-          </button>
-          {mode !== 'goal' && currencies.length > 1 && (
-            <button className={`ctx${picker === 'currency' ? ' on' : ''}`} onClick={() => setPicker(picker === 'currency' ? null : 'currency')}>
-              {currency.code}
-              <IconChevronDown size={13} />
-            </button>
-          )}
-        </div>
+            {picker === 'newCat' ? (
+              <div className="new-cat">
+                <div className="note-edit">
+                  <input
+                    className="input"
+                    autoFocus
+                    value={newCat.name}
+                    placeholder={t('add.categoryName')}
+                    onChange={(e) => (setNewCat((c) => ({ ...c, name: e.target.value })), setError(''))}
+                    onKeyDown={(e) => e.key === 'Enter' && createCategory()}
+                  />
+                  <button className="primary slim" onClick={createCategory}>
+                    {t('add.create')}
+                  </button>
+                </div>
+                <div className="icon-strip">
+                  {QUICK_ICONS.map((i) => (
+                    <button key={i} className={newCat.icon === i ? 'on' : ''} aria-label={i} onClick={() => setNewCat((c) => ({ ...c, icon: i }))}>
+                      <CategoryIcon name={i} size={20} />
+                    </button>
+                  ))}
+                </div>
+                <button className="link-btn" onClick={() => setPicker(null)}>
+                  {t('common.cancel')}
+                </button>
+              </div>
+            ) : (
+              <div className="pick-scroll">
+                {(mode === 'expense' || mode === 'income') && (
+                  <>
+                    {suggested.length > 0 && (
+                      <>
+                        <p className="pick-label">{t('add.habits')}</p>
+                        <div className="tiles">{suggested.map(catTile)}</div>
+                        <p className="pick-label">{t('add.allCategories')}</p>
+                      </>
+                    )}
+                    <div className="tiles">
+                      {rest.map(catTile)}
+                      <button className="tile" onClick={() => setPicker('newCat')}>
+                        <span className="tile-icon ghost">
+                          <IconPlus size={22} />
+                        </span>
+                        <span className="tile-name">{t('add.newCategory')}</span>
+                      </button>
+                    </div>
+                  </>
+                )}
 
-        <div className="pick-area">
-          {picker === 'date' && (
-            <div className="options">
-              <button className={date === todayKey ? 'on' : ''} onClick={() => (setDate(todayKey), setPicker(null))}>
-                {t('common.today')}
+                {mode === 'goal' && (
+                  <>
+                    <div className="dir-toggle" role="tablist">
+                      {(['save', 'release'] as const).map((d) => (
+                        <button key={d} role="tab" aria-selected={goalDir === d} className={goalDir === d ? 'on' : ''} onClick={() => setGoalDir(d)}>
+                          {d === 'save' ? t('add.putAside') : t('add.takeBack')}
+                        </button>
+                      ))}
+                    </div>
+                    {activeGoals.length === 0 ? (
+                      <div className="goal-empty-mini">
+                        <YarnBall color="#2F6F73" progress={0.35} size={64} />
+                        <p className="muted small">{t('add.noGoals')}</p>
+                        <button className="primary" onClick={onNewGoal}>
+                          {t('add.createGoal')}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="tiles">
+                        {activeGoals.map((g) => {
+                          const bal = balances.get(g.id) ?? 0
+                          return tile(g.id, g.name, g.color, <YarnBall color={g.color} progress={g.target > 0 ? bal / g.target : bal > 0 ? 0.5 : 0} size={50} />, formatMoney(bal, mainCurrency))
+                        })}
+                        <button className="tile" onClick={onNewGoal}>
+                          <span className="tile-icon ghost">
+                            <IconPlus size={22} />
+                          </span>
+                          <span className="tile-name">{t('add.newCategory')}</span>
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {mode === 'transfer' && (
+                  <>
+                    <p className="pick-label">
+                      {t('add.from')}: <button className="link-btn inline" onClick={() => setPicker(picker === 'account' ? null : 'account')}>{accName(accountId)} ▾</button>
+                    </p>
+                    {picker === 'account' && (
+                      <div className="options">
+                        {activeAccounts.map((a) => (
+                          <button key={a.id} className={a.id === accountId ? 'on' : ''} onClick={() => (setAccountId(a.id), setCurrencyCode(a.currency), setPicker(null))}>
+                            {builtinName(a, 'acc')}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="tiles">
+                      {activeAccounts
+                        .filter((a) => a.id !== accountId)
+                        .map((a) =>
+                          tile(
+                            a.id,
+                            builtinName(a, 'acc'),
+                            'var(--thread)',
+                            <span className="tile-icon">
+                              <IconWallet size={22} />
+                            </span>,
+                          ),
+                        )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            {error && <p className="error">{error}</p>}
+          </div>
+        )}
+
+        {step === 'amount' && (
+          <div className="step-body step-amount" key="amount">
+            {chosen && (
+              <button className="chosen" style={{ '--c': chosen.color } as CSSProperties} onClick={() => setStep('pick')}>
+                <IconArrowLeft size={16} className="chosen-back" />
+                <span className="chosen-icon">{chosen.icon}</span>
+                <span className="chosen-label">{chosen.label}</span>
+                <span className="chosen-change">{t('add.change')}</span>
               </button>
-              <button className={date === yesterdayKey ? 'on' : ''} onClick={() => (setDate(yesterdayKey), setPicker(null))}>
-                {t('common.yesterday')}
-              </button>
-              <button
-                className={date !== todayKey && date !== yesterdayKey ? 'on' : ''}
-                onClick={() => {
-                  const el = dateRef.current
-                  try {
-                    el?.showPicker()
-                  } catch {
-                    el?.focus()
-                  }
-                }}
-              >
-                {date !== todayKey && date !== yesterdayKey ? dateFmt({ weekday: 'short', day: 'numeric', month: 'long' }).format(new Date(date)) : t('add.otherDay')}
-              </button>
-              <input
-                ref={dateRef}
-                type="date"
-                className="hidden-date"
-                value={date}
-                onChange={(e) => {
-                  if (e.target.value) setDate(e.target.value)
-                  setPicker(null)
-                }}
-                tabIndex={-1}
-                aria-hidden="true"
-              />
+            )}
+
+            <div className="amount-hero">
+              <span className={`amount-big${input ? '' : ' placeholder'}`}>{amountText}</span>
+              {foreign && Number(rate) > 0 && amountMinor > 0 && (
+                <span className="amount-converted">≈ {formatMoney(convertMinor(amountMinor, currency, mainCurrency, Number(rate)), mainCurrency)}</span>
+              )}
             </div>
-          )}
 
-          {picker === 'account' && (
-            <div className="options">
-              {activeAccounts.map((a) => (
+            <div className="ctx-row">
+              <button className={`ctx${picker === 'date' ? ' on' : ''}`} onClick={() => setPicker(picker === 'date' ? null : 'date')}>
+                <IconCalendar size={15} />
+                {dateLabel}
+              </button>
+              {mode !== 'goal' && mode !== 'opening' && mode !== 'transfer' && (
+                <button className={`ctx${picker === 'account' ? ' on' : ''}`} onClick={() => setPicker(picker === 'account' ? null : 'account')}>
+                  <IconWallet size={15} />
+                  {accName(accountId)}
+                </button>
+              )}
+              {mode === 'expense' && activeGoals.length > 0 && (
                 <button
-                  key={a.id}
-                  className={a.id === accountId ? 'on' : ''}
+                  className={`ctx${picker === 'payFrom' ? ' on' : ''}${payFromGoal ? ' tinted' : ''}`}
+                  style={payFromGoal ? ({ '--c': payFromGoal.color } as CSSProperties) : undefined}
+                  onClick={() => setPicker(picker === 'payFrom' ? null : 'payFrom')}
+                >
+                  {t('add.payFrom')}: {payFromGoal ? payFromGoal.name : t('add.payAvailable')}
+                </button>
+              )}
+              {!editing && (mode === 'expense' || mode === 'income') && (
+                <button className={`ctx${picker === 'repeat' ? ' on' : ''}${repeat !== 'none' ? ' tinted' : ''}`} onClick={() => setPicker(picker === 'repeat' ? null : 'repeat')}>
+                  <IconRepeat size={15} />
+                  {repeat === 'none' ? t('add.repeat') : t(`repeat.${repeat}` as Key)}
+                </button>
+              )}
+              {mode === 'opening' && (
+                <button className={`ctx${negative ? ' on' : ''}`} onClick={() => setNegative((v) => !v)}>
+                  {negative ? t('add.overdrawn') : t('add.positive')}
+                </button>
+              )}
+              <button className={`ctx${picker === 'note' ? ' on' : ''}`} onClick={() => setPicker(picker === 'note' ? null : 'note')}>
+                <IconNote size={15} />
+                {note ? <span className="ctx-note">{note}</span> : t('add.addNote')}
+              </button>
+              {mode !== 'goal' && mode !== 'opening' && currencies.length > 1 && (
+                <button className={`ctx${picker === 'currency' ? ' on' : ''}`} onClick={() => setPicker(picker === 'currency' ? null : 'currency')}>
+                  {currency.code}
+                  <IconChevronDown size={13} />
+                </button>
+              )}
+            </div>
+
+            {picker === 'date' && (
+              <div className="options">
+                <button className={date === todayKey ? 'on' : ''} onClick={() => (setDate(todayKey), setPicker(null))}>
+                  {t('common.today')}
+                </button>
+                <button className={date === yesterdayKey ? 'on' : ''} onClick={() => (setDate(yesterdayKey), setPicker(null))}>
+                  {t('common.yesterday')}
+                </button>
+                <button
+                  className={date !== todayKey && date !== yesterdayKey ? 'on' : ''}
                   onClick={() => {
-                    setAccountId(a.id)
-                    setCurrencyCode(a.currency)
-                    if (mode === 'transfer' && selected === a.id) setSelected(null)
-                    setPicker(null)
+                    const el = dateRef.current
+                    try {
+                      el?.showPicker()
+                    } catch {
+                      el?.focus()
+                    }
                   }}
                 >
-                  {builtinName(a, 'acc')}
-                  <span className="muted small"> {a.currency}</span>
+                  {date !== todayKey && date !== yesterdayKey ? dateFmt({ weekday: 'short', day: 'numeric', month: 'long' }).format(new Date(date)) : t('add.otherDay')}
                 </button>
-              ))}
-            </div>
-          )}
-
-          {picker === 'currency' && (
-            <div className="options">
-              {currencies.map((c) => (
-                <button key={c.code} className={c.code === currency.code ? 'on' : ''} onClick={() => (setCurrencyCode(c.code), setPicker(null))}>
-                  {c.code} <span className="muted small">{c.symbol}</span>
+                <input
+                  ref={dateRef}
+                  type="date"
+                  className="hidden-date"
+                  value={date}
+                  onChange={(e) => {
+                    if (e.target.value) setDate(e.target.value)
+                    setPicker(null)
+                  }}
+                  tabIndex={-1}
+                  aria-hidden="true"
+                />
+              </div>
+            )}
+            {picker === 'account' && (
+              <div className="options">
+                {activeAccounts.map((a) => (
+                  <button key={a.id} className={a.id === accountId ? 'on' : ''} onClick={() => (setAccountId(a.id), setCurrencyCode(a.currency), setPicker(null))}>
+                    {builtinName(a, 'acc')}
+                    <span className="muted small"> {a.currency}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {picker === 'currency' && (
+              <div className="options">
+                {currencies.map((c) => (
+                  <button key={c.code} className={c.code === currency.code ? 'on' : ''} onClick={() => (setCurrencyCode(c.code), setPicker(null))}>
+                    {c.code} <span className="muted small">{c.symbol}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {picker === 'payFrom' && (
+              <div className="options">
+                <button className={payFrom === null ? 'on' : ''} onClick={() => (setPayFrom(null), setPicker(null))}>
+                  {t('add.payAvailable')}
                 </button>
-              ))}
-            </div>
-          )}
-
-          {picker === 'payFrom' && (
-            <div className="options">
-              <button className={payFrom === null ? 'on' : ''} onClick={() => (setPayFrom(null), setPicker(null))}>
-                {t('add.payAvailable')}
-              </button>
-              {activeGoals.map((g) => (
-                <button key={g.id} className={payFrom === g.id ? 'on' : ''} onClick={() => (setPayFrom(g.id), setPicker(null))}>
-                  <span className="legend-dot" style={{ background: g.color }} /> {g.name}
-                  <span className="muted small"> {formatMoney(balances.get(g.id) ?? 0, mainCurrency)}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {picker === 'note' && (
-            <div className="note-edit">
-              <input
-                className="input"
-                autoFocus
-                value={note}
-                placeholder={t('add.notePlaceholder')}
-                onChange={(e) => setNote(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && setPicker(null)}
-              />
-              <button className="icon-btn" aria-label={t('common.done')} onClick={() => setPicker(null)}>
-                <IconCheck size={20} />
-              </button>
-            </div>
-          )}
-
-          {picker === 'newCat' && (
-            <div className="new-cat">
+                {activeGoals.map((g) => (
+                  <button key={g.id} className={payFrom === g.id ? 'on' : ''} onClick={() => (setPayFrom(g.id), setPicker(null))}>
+                    <span className="legend-dot" style={{ background: g.color }} /> {g.name}
+                    <span className="muted small"> {formatMoney(balances.get(g.id) ?? 0, mainCurrency)}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {picker === 'repeat' && (
+              <div className="options">
+                {REPEATS.map((r) => (
+                  <button key={r} className={repeat === r ? 'on' : ''} onClick={() => (setRepeat(r), setPicker(null))}>
+                    {t(`repeat.${r}` as Key)}
+                  </button>
+                ))}
+              </div>
+            )}
+            {editing?.recurringId && (
+              <p className="note-box" style={{ margin: 0 }}>
+                <IconRepeat size={14} style={{ verticalAlign: '-2px' }} />{' '}
+                {t('add.recurringInfo', { kind: editing.kind === 'income' ? t('add.kindIncome') : t('add.kindExpense') })}
+              </p>
+            )}
+            {picker === 'note' && (
               <div className="note-edit">
                 <input
                   className="input"
                   autoFocus
-                  value={newCat.name}
-                  placeholder={t('add.categoryName')}
-                  onChange={(e) => (setNewCat((c) => ({ ...c, name: e.target.value })), setError(''))}
-                  onKeyDown={(e) => e.key === 'Enter' && createCategory()}
+                  value={note}
+                  placeholder={t('add.notePlaceholder')}
+                  onChange={(e) => setNote(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && setPicker(null)}
                 />
-                <button className="primary slim" onClick={createCategory}>
-                  {t('add.create')}
+                <button className="icon-btn" aria-label={t('common.done')} onClick={() => setPicker(null)}>
+                  <IconCheck size={20} />
                 </button>
               </div>
-              <div className="icon-strip">
-                {QUICK_ICONS.map((i) => (
-                  <button key={i} className={newCat.icon === i ? 'on' : ''} aria-label={i} onClick={() => setNewCat((c) => ({ ...c, icon: i }))}>
-                    <CategoryIcon name={i} size={20} />
-                  </button>
-                ))}
-              </div>
+            )}
+
+            <div className="keypad">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫'].map((k) => (
+                <button key={k} onClick={() => press(k)} aria-label={k === '⌫' ? 'Backspace' : k === '.' ? decimalSep() : k}>
+                  {k === '⌫' ? <IconBackspace size={22} stroke={1.6} /> : k === '.' ? decimalSep() : k}
+                </button>
+              ))}
             </div>
-          )}
 
-          {picker === null && (mode === 'expense' || mode === 'income') && (
-            <>
-              <p className="pick-label">{showAll ? t('add.categories') : fromHabits ? t('add.habits') : t('add.categories')}</p>
-              <div className={`tiles${showAll ? ' scroll' : ''}`}>
-                {visibleCats.map((c) => (
-                  <button
-                    key={c.id}
-                    className={`tile${selected === c.id ? ' on' : ''}`}
-                    style={{ '--c': c.color } as CSSProperties}
-                    onClick={() => select(c.id)}
-                  >
-                    <span className="tile-icon">
-                      <CategoryIcon name={c.icon} />
-                    </span>
-                    <span className="tile-name">{builtinName(c, 'cat')}</span>
-                  </button>
-                ))}
-                {!showAll && ranked.length > 8 && (
-                  <button className="tile" onClick={() => setShowAll(true)}>
-                    <span className="tile-icon ghost">
-                      <CategoryIcon name="dots" />
-                    </span>
-                    <span className="tile-name">{t('common.more')}</span>
-                  </button>
-                )}
-                {(showAll || ranked.length <= 7) && (
-                  <button className="tile" onClick={() => setPicker('newCat')}>
-                    <span className="tile-icon ghost">
-                      <IconPlus size={22} />
-                    </span>
-                    <span className="tile-name">{t('add.newCategory')}</span>
-                  </button>
-                )}
-              </div>
-            </>
-          )}
+            {error && <p className="error">{error}</p>}
 
-          {picker === null && mode === 'goal' && (
-            <>
-              <div className="dir-toggle" role="tablist">
-                {(['save', 'release'] as const).map((d) => (
-                  <button key={d} role="tab" aria-selected={goalDir === d} className={goalDir === d ? 'on' : ''} onClick={() => setGoalDir(d)}>
-                    {d === 'save' ? t('add.putAside') : t('add.takeBack')}
-                  </button>
-                ))}
-              </div>
-              {activeGoals.length === 0 ? (
-                <div className="goal-empty">
-                  <p className="muted small">{t('add.noGoals')}</p>
-                  <button className="secondary" onClick={onNewGoal}>
-                    {t('add.createGoal')}
-                  </button>
-                </div>
-              ) : (
-                <div className="tiles">
-                  {activeGoals.map((g) => {
-                    const bal = balances.get(g.id) ?? 0
-                    return (
-                      <button key={g.id} className={`tile${selected === g.id ? ' on' : ''}`} style={{ '--c': g.color } as CSSProperties} onClick={() => select(g.id)}>
-                        <YarnBall color={g.color} progress={g.target > 0 ? bal / g.target : bal > 0 ? 0.5 : 0} size={46} />
-                        <span className="tile-name">{g.name}</span>
-                        <span className="tile-sub">{formatMoney(bal, mainCurrency)}</span>
-                      </button>
-                    )
-                  })}
-                  <button className="tile" onClick={onNewGoal}>
-                    <span className="tile-icon ghost">
-                      <IconPlus size={22} />
-                    </span>
-                    <span className="tile-name">{t('add.newCategory')}</span>
-                  </button>
-                </div>
-              )}
-            </>
-          )}
+            <button className="save-btn" onClick={save}>
+              {amountMinor > 0
+                ? t('add.saveBtn', { amount: formatMoney(amountMinor * (negative ? -1 : 1), currency) })
+                : t('add.enterAmount')}
+            </button>
 
-          {picker === null && mode === 'transfer' && (
-            <>
-              <p className="pick-label">{t('add.pickTo')}</p>
-              <div className="tiles">
-                {activeAccounts
-                  .filter((a) => a.id !== accountId)
-                  .map((a) => (
-                    <button key={a.id} className={`tile${selected === a.id ? ' on' : ''}`} style={{ '--c': 'var(--thread)' } as CSSProperties} onClick={() => select(a.id)}>
-                      <span className="tile-icon">
-                        <IconWallet size={22} />
-                      </span>
-                      <span className="tile-name">{builtinName(a, 'acc')}</span>
-                    </button>
-                  ))}
-              </div>
-            </>
-          )}
-        </div>
-
-        <div className={`keypad-wrap${unlocked ? '' : ' locked'}`}>
-          <div className="keypad" aria-disabled={!unlocked}>
-            {['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫'].map((k) => (
-              <button key={k} tabIndex={unlocked ? 0 : -1} onClick={() => press(k)} aria-label={k === '⌫' ? 'Backspace' : k === '.' ? decimalSep() : k}>
-                {k === '⌫' ? <IconBackspace size={22} stroke={1.6} /> : k === '.' ? decimalSep() : k}
+            {editing && (
+              <button className={`danger-link${confirmDelete ? ' armed' : ''}`} onClick={remove}>
+                {confirmDelete ? t('add.deleteConfirm') : t('add.delete')}
               </button>
-            ))}
+            )}
           </div>
-          {!unlocked && (
-            <p className="lock-hint">
-              <IconLock size={15} />
-              {t(lockKey)}
-            </p>
-          )}
-        </div>
-
-        {error && <p className="error">{error}</p>}
-
-        {unlocked && (
-          <button className="save-btn" onClick={save}>
-            {t('add.saveBtn', { amount: formatMoney(amountMinor, currency) })}
-          </button>
-        )}
-
-        {editing && (
-          <button className={`danger-link${confirmDelete ? ' armed' : ''}`} onClick={remove}>
-            {confirmDelete ? t('add.deleteConfirm') : t('add.delete')}
-          </button>
         )}
       </div>
     </div>

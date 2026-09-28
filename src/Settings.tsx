@@ -2,8 +2,10 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { exportCsv, exportJson, importJson } from './backup'
 import { CATEGORY_ICONS, CategoryIcon } from './catIcons'
 import type { AppData } from './data'
-import { db, WOOL, type Account, type Category } from './db'
-import { builtinName, dateFmt, numberToInput, t, type LangSetting } from './i18n'
+import { db, openingId, WOOL, type Account, type Category, type Frequency, type Recurring } from './db'
+import { saveOpening } from './opening'
+import { deleteSeries, updateSeries } from './recurring'
+import { builtinName, dateFmt, numberToInput, t, type Key, type LangSetting } from './i18n'
 import { IconDown, IconLeft, IconRight, IconUp } from './icons'
 import { ImportCsv } from './ImportCsv'
 import { authEnabled, currentUser, signOut } from './auth'
@@ -17,6 +19,7 @@ type View =
   | { type: 'currency' }
   | { type: 'main-currency'; code: string }
   | { type: 'import' }
+  | { type: 'recurring'; rule: Recurring }
 
 interface Props {
   data: AppData
@@ -52,6 +55,7 @@ export function Settings({ data, offline, langSetting, onLangChange, onBack }: P
   if (view.type === 'currency') return <CurrencyForm data={data} onDone={back} />
   if (view.type === 'main-currency') return <MainCurrencyForm data={data} code={view.code} onDone={back} />
   if (view.type === 'import') return <ImportCsv data={data} onDone={back} />
+  if (view.type === 'recurring') return <RecurringForm data={data} rule={view.rule} onDone={back} />
   return <SettingsMain data={data} offline={offline} langSetting={langSetting} onLangChange={onLangChange} onBack={onBack} go={setView} />
 }
 
@@ -121,7 +125,7 @@ function SettingsMain({
     for (const tx of transactions) {
       // I gomitoli sono accantonamenti "virtuali": i soldi restano sul conto.
       if (tx.kind === 'save' || tx.kind === 'release') continue
-      if (tx.accountId === acc.id) b += tx.kind === 'income' ? tx.amount : -tx.amount
+      if (tx.accountId === acc.id) b += tx.kind === 'income' || tx.kind === 'opening' ? tx.amount : -tx.amount
       if (tx.toAccountId === acc.id) b += tx.amount
     }
     return b
@@ -164,6 +168,33 @@ function SettingsMain({
 
       <p className="section-title">{t('set.incomeCats')}</p>
       {categoryList('income')}
+
+      <p className="section-title">{t('set.recurring')}</p>
+      {data.recurring.length === 0 ? (
+        <p className="note-box">{t('set.recurringEmpty')}</p>
+      ) : (
+        <div className="list">
+          {data.recurring.map((r) => {
+            const cat = categories.find((c) => c.id === r.categoryId)
+            const cur = currencies.find((c) => c.code === r.currency) ?? mainCurrency
+            return (
+              <button key={r.id} className={`list-row${r.active ? '' : ' archived'}`} onClick={() => go({ type: 'recurring', rule: r })}>
+                <span className="row-icon" style={{ '--c': cat?.color ?? 'var(--muted)' } as CSSProperties}>
+                  <CategoryIcon name={cat?.icon} size={18} />
+                </span>
+                <span className="grow">
+                  {r.note || (cat ? builtinName(cat, 'cat') : '')}
+                  <span className="muted small" style={{ display: 'block' }}>
+                    {t(`repeat.${r.frequency}` as Key)} ·{' '}
+                    {r.active ? t('set.recurringNext', { date: dateFmt({ day: 'numeric', month: 'short' }).format(r.next) }) : t('set.recurringPaused')}
+                  </span>
+                </span>
+                <span className="legend-value">{formatMoney(r.kind === 'expense' ? -r.amount : r.amount, cur, { sign: r.kind === 'income' })}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       <p className="section-title">{t('set.accounts')}</p>
       <div className="list">
@@ -329,6 +360,79 @@ function AccountSection({ offline }: { offline: boolean }) {
   )
 }
 
+function RecurringForm({ data, rule, onDone }: { data: AppData; rule: Recurring; onDone: () => void }) {
+  const currency = data.currencies.find((c) => c.code === rule.currency) ?? data.mainCurrency
+  const cat = data.categories.find((c) => c.id === rule.categoryId)
+  const [amount, setAmount] = useState(numberToInput(fromMinor(rule.amount, currency.decimals)))
+  const [frequency, setFrequency] = useState<Frequency>(rule.frequency)
+  const [note, setNote] = useState(rule.note)
+  const [error, setError] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const kindLabel = rule.kind === 'income' ? t('add.kindIncome') : t('add.kindExpense')
+
+  async function save(active = rule.active) {
+    const value = parseTyped(amount, currency.decimals)
+    if (value <= 0) return setError(t('err.amount'))
+    const ratio = rule.amount ? rule.mainAmount / rule.amount : 1
+    await updateSeries({ ...rule, amount: value, mainAmount: Math.round(value * ratio), frequency, note: note.trim(), active })
+    onDone()
+  }
+
+  async function remove() {
+    if (!confirmDelete) return setConfirmDelete(true)
+    await deleteSeries(rule)
+    onDone()
+  }
+
+  return (
+    <>
+      <Header title={t('rec.title', { kind: kindLabel.charAt(0).toUpperCase() + kindLabel.slice(1) })} onBack={onDone} />
+      <div className="goal-preview">
+        <span className="tile-icon big" style={{ '--c': cat?.color ?? 'var(--muted)' } as CSSProperties}>
+          <CategoryIcon name={cat?.icon} size={32} />
+        </span>
+      </div>
+      <div className="card form">
+        <div className="form-row">
+          <label className="field">
+            {t('rec.amount')} ({currency.symbol})
+            <input inputMode="decimal" value={amount} onChange={(e) => (setAmount(e.target.value), setError(''))} />
+          </label>
+          <label className="field">
+            {t('rec.frequency')}
+            <select value={frequency} onChange={(e) => setFrequency(e.target.value as Frequency)}>
+              {(['week', 'month', 'year'] as const).map((f) => (
+                <option key={f} value={f}>
+                  {t(`repeat.${f}` as Key)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <label className="field">
+          {t('common.note')}
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={cat ? builtinName(cat, 'cat') : ''} />
+        </label>
+        {error && <p className="error">{error}</p>}
+        <div className="form-actions">
+          <button className="secondary" onClick={() => save(!rule.active)}>
+            {rule.active ? t('rec.stop') : t('rec.resume')}
+          </button>
+          <button className="primary" onClick={() => save()}>
+            {t('common.save')}
+          </button>
+        </div>
+      </div>
+      <p className="note-box">
+        {t('rec.note')}{' '}
+        <button className={`danger-link${confirmDelete ? ' armed' : ''}`} style={{ padding: 0 }} onClick={remove}>
+          {confirmDelete ? t('rec.deleteConfirm') : t('rec.delete')}
+        </button>
+      </p>
+    </>
+  )
+}
+
 function IconRightSmall() {
   return (
     <span className="tiny-btn" aria-hidden="true">
@@ -444,12 +548,14 @@ function AccountForm({ data, acc, onDone }: { data: AppData; acc?: Account; onDo
   const [name, setName] = useState(original)
   const [code, setCode] = useState(acc?.currency ?? mainCurrency.code)
   const currency = currencies.find((c) => c.code === code) ?? mainCurrency
-  const [balance, setBalance] = useState(acc ? numberToInput(fromMinor(acc.initialBalance, currency.decimals)) : '')
+  // Il saldo iniziale è il nodo "opening" del conto sul filo.
+  const opening = acc ? data.transactions.find((tx) => tx.id === openingId(acc.id)) : undefined
+  const [balance, setBalance] = useState(opening ? numberToInput(fromMinor(opening.amount, currency.decimals)) : '')
   const [rate, setRate] = useState('')
   const [error, setError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const foreign = code !== mainCurrency.code
-  const used = acc ? data.transactions.some((tx) => tx.accountId === acc.id || tx.toAccountId === acc.id) : false
+  const used = acc ? data.transactions.some((tx) => tx.kind !== 'opening' && (tx.accountId === acc.id || tx.toAccountId === acc.id)) : false
 
   useEffect(() => {
     if (!foreign) return
@@ -470,16 +576,18 @@ function AccountForm({ data, acc, onDone }: { data: AppData; acc?: Account; onDo
     const initialMain = foreign ? Math.sign(initialBalance) * convertMinor(Math.abs(initialBalance), currency, mainCurrency, rateValue || 0) : initialBalance
     const order = acc?.order ?? Math.max(0, ...data.accounts.map((a) => a.order ?? 0)) + 1
     const keepBuiltin = acc?.key && !acc.name && name.trim() === original
-    await db.accounts.put({
+    const saved: Account = {
       id: acc?.id ?? crypto.randomUUID(),
       name: keepBuiltin ? '' : name.trim(),
       key: acc?.key,
       currency: code,
-      initialBalance,
-      initialMain,
+      initialBalance: 0,
+      initialMain: 0,
       order,
       archived: acc?.archived ?? false,
-    })
+    }
+    await db.accounts.put(saved)
+    await saveOpening(saved, initialBalance, initialMain)
     onDone()
   }
 
@@ -492,6 +600,7 @@ function AccountForm({ data, acc, onDone }: { data: AppData; acc?: Account; onDo
   async function remove() {
     if (!acc) return
     if (!confirmDelete) return setConfirmDelete(true)
+    await db.transactions.delete(openingId(acc.id))
     await db.accounts.delete(acc.id)
     onDone()
   }
