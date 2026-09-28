@@ -15,6 +15,8 @@ export type AuthState =
   /** Senza rete: si usa l'app con i dati locali. */
   | { status: 'offline' }
   | { status: 'error' }
+  /** La pagina c'è ma il server FIG non risponde (in sviluppo: server/ non avviato). */
+  | { status: 'server-down' }
 
 let user: User | null = null
 let mode: 'oidc' | 'disabled' = 'oidc'
@@ -35,6 +37,7 @@ export async function initAuth(): Promise<AuthState> {
     // La pagina sta per andare a Keycloak: non c'è altro da fare.
     return new Promise(() => {})
   }
+  if (res.status === 502 || res.status === 503 || res.status === 504) return { status: 'server-down' }
   if (!res.ok) return { status: 'error' }
   const me = (await res.json()) as User & { auth?: 'oidc' | 'disabled' }
   mode = me.auth ?? 'oidc'

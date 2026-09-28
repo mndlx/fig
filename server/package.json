@@ -5,7 +5,7 @@
   "description": "API e database di FIG: sincronizzazione per utente, autenticazione Keycloak, SQLite",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "tsx watch --include .env src/index.ts",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit"
   },

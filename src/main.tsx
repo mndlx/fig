@@ -15,7 +15,8 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
 
 const root = createRoot(document.getElementById('root')!)
 
-function Gate({ kind }: { kind: 'loading' | 'offline' | 'error' }) {
+function Gate({ kind }: { kind: 'loading' | 'offline' | 'error' | 'server-down' }) {
+  const message = kind === 'offline' ? t('auth.offline') : kind === 'server-down' ? t('auth.serverDown') : t('auth.error')
   return (
     <div className="gate">
       <span className="wordmark big">
@@ -24,8 +25,8 @@ function Gate({ kind }: { kind: 'loading' | 'offline' | 'error' }) {
       </span>
       {kind !== 'loading' && (
         <>
-          <p className="muted">{kind === 'offline' ? t('auth.offline') : t('auth.error')}</p>
-          <button className="primary" onClick={() => (kind === 'offline' ? location.reload() : signIn())}>
+          <p className="muted">{message}</p>
+          <button className="primary" onClick={() => (kind === 'error' ? signIn() : location.reload())}>
             {t('auth.retry')}
           </button>
         </>
@@ -43,7 +44,7 @@ async function boot() {
   } else {
     // Senza login si può usare l'app solo se su questo dispositivo c'è già il proprio archivio.
     const owner = await db.syncMeta.get('owner')
-    if (auth.status === 'error' || !owner) return root.render(<Gate kind={auth.status === 'offline' ? 'offline' : 'error'} />)
+    if (auth.status !== 'offline' || !owner) return root.render(<Gate kind={auth.status} />)
     offline = true
   }
   root.render(
