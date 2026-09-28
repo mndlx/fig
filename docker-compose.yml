@@ -1,0 +1,17 @@
+services:
+  fig:
+    build: .
+    image: fig:latest
+    container_name: fig
+    restart: unless-stopped
+    # Solo in locale: davanti c'è nginx sull'host, che gestisce HTTPS per fig.vlabstudio.net.
+    ports:
+      - "127.0.0.1:${FIG_PORT:-8096}:8080"
+    environment:
+      OIDC_ISSUER: https://identity.vlabstudio.net/realms/virtual-systems
+      OIDC_CLIENT_ID: fig
+    volumes:
+      - fig-data:/data
+
+volumes:
+  fig-data:

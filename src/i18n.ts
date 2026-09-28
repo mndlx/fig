@@ -1,0 +1,699 @@
+/**
+ * Traduzioni di FIG. L'inglese è la lingua di riferimento: ogni chiave deve esistere
+ * anche in italiano, altrimenti la build fallisce.
+ */
+
+const en = {
+  // Comuni
+  'common.save': 'Save',
+  'common.cancel': 'Cancel',
+  'common.back': 'Back',
+  'common.close': 'Close',
+  'common.archive': 'Archive',
+  'common.restore': 'Restore',
+  'common.undo': 'Undo',
+  'common.done': 'Done',
+  'common.add': 'Add',
+  'common.more': 'More',
+  'common.less': 'Less',
+  'common.name': 'Name',
+  'common.color': 'Colour',
+  'common.icon': 'Icon',
+  'common.currency': 'Currency',
+  'common.account': 'Account',
+  'common.note': 'Note',
+  'common.today': 'today',
+  'common.yesterday': 'yesterday',
+  'common.archived': 'archived',
+  'err.name': 'Enter a name',
+  'err.amount': 'Enter an amount',
+  'err.rate': 'Enter the {from} → {to} rate',
+  'err.sameAccount': 'Pick two different accounts',
+
+  // Navigazione e intestazione
+  'nav.thread': 'Thread',
+  'nav.weave': 'Weave',
+  'nav.goals': 'Stashes',
+  'nav.sections': 'Sections',
+  'nav.month': 'Month',
+  'nav.prevMonth': 'Previous month',
+  'nav.nextMonth': 'Next month',
+  'nav.currentMonth': 'Back to current month',
+  'nav.settings': 'Settings',
+  'nav.add': 'Add transaction',
+
+  // Card principale
+  'hero.available': 'Available',
+  'hero.endOfMonth': 'Balance at month end',
+  'hero.projected': 'Projected balance',
+  'hero.lastDay': 'last day of the month',
+  'hero.daysLeft': '{n} days left this month',
+  'hero.inGoals': '{amount} in stashes',
+  'hero.elapsed': 'Month elapsed',
+  'hero.used': 'Month’s money used',
+  'hero.income': 'In',
+  'hero.expense': 'Out',
+  'hero.saved': 'Set aside',
+
+  'empty.title': 'The {month} thread is still untouched',
+  'empty.body': 'Every income makes it thicker, every expense makes it thinner.',
+
+  'onb.title': 'Where are you starting from?',
+  'onb.body': 'Enter how much you have in each account today: that’s where the thread begins.',
+  'onb.later': 'Later',
+  'onb.start': 'Start',
+
+  'toast.expense': '{amount} expense saved',
+  'toast.income': '{amount} income saved',
+  'toast.save': '{amount} into {goal}',
+  'toast.release': '{amount} taken back from {goal}',
+  'toast.spentFrom': '{amount} spent from {goal}',
+  'toast.transfer': 'Transfer saved',
+  'toast.edited': 'Changes saved',
+  'toast.deleted': 'Transaction deleted',
+
+  // Il filo
+  'thread.start': 'Start of month',
+  'thread.forecast': 'Month-end forecast',
+  'thread.transfer': 'Transfer',
+  'thread.saved': 'Set aside',
+  'thread.released': 'Taken back',
+  'thread.fromGoal': 'from {goal}',
+  'thread.uncategorized': 'Uncategorised',
+  'thread.stash': 'Stash',
+
+  // Inserimento
+  'add.new': 'New transaction',
+  'add.edit': 'Edit transaction',
+  'mode.expense': 'Expense',
+  'mode.income': 'Income',
+  'mode.goal': 'Stash',
+  'mode.transfer': 'Transfer',
+  'add.habits': 'Usually around now',
+  'add.categories': 'Categories',
+  'add.pickGoal': 'Which stash?',
+  'add.pickTo': 'Move to',
+  'add.from': 'From',
+  'add.putAside': 'Put aside',
+  'add.takeBack': 'Take back',
+  'add.payFrom': 'Pay from',
+  'add.payAvailable': 'Available money',
+  'add.addNote': 'Add note',
+  'add.notePlaceholder': 'What was it?',
+  'add.otherDay': 'Other day…',
+  'add.newCategory': 'New',
+  'add.categoryName': 'Category name',
+  'add.create': 'Create',
+  'add.saveBtn': 'Save · {amount}',
+  'add.locked.category': 'Pick a category to enter the amount',
+  'add.locked.goal': 'Pick a stash to enter the amount',
+  'add.locked.account': 'Pick the account to move money to',
+  'add.delete': 'Delete transaction',
+  'add.deleteConfirm': 'Tap again to delete',
+  'add.noGoals': 'A stash is a goal: a trip, a gift, a rainy-day fund.',
+  'add.createGoal': 'Create your first stash',
+  'add.goalBalance': 'This stash holds {amount}',
+
+  // La trama
+  'weave.titleMonth': 'The weave of {month}',
+  'weave.titleYear': 'The weave of {year}',
+  'weave.spent': '{amount} spent',
+  'weave.none': 'No expenses yet',
+  'weave.highlight': 'highlighted: {name}',
+  'weave.month': 'Month',
+  'weave.year': 'Year',
+  'weave.noTx': 'No transactions.',
+  'weave.newThisMonth': 'new this month',
+  'weave.vs': '{delta}% vs {month}',
+  'weave.hint': 'Tap a category to follow its thread through the weave',
+  'weave.weekdays': 'M T W T F S S',
+
+  // Gomitoli
+  'goals.title': 'Stashes',
+  'goals.summary': '{amount} set aside, outside your available money',
+  'goals.intro': 'Set money aside for something: it leaves your available money and winds up here.',
+  'goals.of': 'of {amount}',
+  'goals.reached': 'Goal reached',
+  'goals.perMonth': '{amount} a month until {date}',
+  'goals.overdue': 'Deadline passed ({date})',
+  'goals.missing': '{amount} to go',
+  'goals.thisMonth': 'this month {amount}',
+  'goals.putAside': 'Put aside',
+  'goals.spend': 'Spend from it',
+  'goals.takeBack': 'Take back',
+  'goals.new': 'New stash',
+  'goals.newHint': 'A trip, a gift, a rainy-day fund',
+  'goals.archived': 'Archived ({n})',
+  'goalForm.edit': 'Edit stash',
+  'goalForm.what': 'What for?',
+  'goalForm.placeholder': 'Trip to Lisbon',
+  'goalForm.target': 'Target ({symbol})',
+  'goalForm.optional': 'optional',
+  'goalForm.by': 'By',
+  'goalForm.create': 'Create stash',
+  'goalForm.nameErr': 'Give the stash a name',
+  'goalForm.history': 'Transactions',
+  'goalForm.empty': 'Nothing yet. When you no longer need this stash you can archive it, or',
+  'goalForm.deleteIt': 'delete it',
+  'goalForm.deleteConfirm': 'tap again to delete it',
+  'goalForm.emptyNow': 'The stash is empty: if the goal is done you can archive it.',
+  'goalForm.suggestions': 'Trip|Rainy-day fund|Christmas gifts|Car|Home',
+  'goalForm.kindSave': 'Set aside',
+  'goalForm.kindRelease': 'Taken back',
+  'goalForm.kindSpent': 'Spent',
+
+  // Impostazioni
+  'set.title': 'Settings',
+  'set.language': 'Language',
+  'set.langAuto': 'Automatic (device)',
+  'set.expenseCats': 'Expense categories',
+  'set.incomeCats': 'Income categories',
+  'set.newCategory': '+ New category',
+  'set.moveUp': 'Move {name} up',
+  'set.moveDown': 'Move {name} down',
+  'set.accounts': 'Accounts',
+  'set.newAccount': '+ New account',
+  'set.currencies': 'Currencies',
+  'set.mainCurrency': 'Main currency',
+  'set.addCurrency': '+ Add currency',
+  'set.data': 'Data',
+  'set.import': 'Import bank statement (CSV)',
+  'set.exportCsv': 'Export transactions to CSV',
+  'set.backup': 'Download full backup',
+  'set.restore': 'Restore from backup',
+  'set.restoreWarn': 'Restoring replaces all current data with the backup.',
+  'set.restoreConfirm': 'Replace data',
+  'set.restored': 'Backup restored.',
+  'set.readErr': 'Couldn’t read the file.',
+  'set.localNote':
+    'Your data is saved on this device and synced to your account. A backup file is still handy to keep a copy of your own.',
+  'set.account': 'Account',
+  'set.syncNow': 'Sync now',
+  'set.signOut': 'Sign out',
+  'set.signOutWarn': '{n} changes haven’t synced yet and will be lost if you sign out now.',
+  'set.signOutAnyway': 'Sign out anyway',
+  'sync.syncing': 'Syncing…',
+  'sync.synced': 'Synced at {time}',
+  'sync.never': 'Not synced yet',
+  'sync.pending': '{n} changes waiting',
+  'sync.error': 'Sync failed, retrying soon',
+  'sync.offline': 'Offline: changes will sync when you’re back online',
+  'sync.localMode': 'Local mode: sign-in is turned off',
+  'auth.offline': 'You’re offline. Connect to the internet to sign in the first time on this device.',
+  'auth.error': 'Couldn’t reach the sign-in service.',
+  'auth.retry': 'Try again',
+  'catForm.edit': 'Edit category',
+  'catForm.newExpense': 'New expense category',
+  'catForm.newIncome': 'New income category',
+  'catForm.placeholder': 'Gym',
+  'catForm.used': 'This category has transactions: archive it to hide it from entry while keeping your history.',
+  'catForm.unused': 'No transactions use this category.',
+  'catForm.delete': 'Delete category',
+  'catForm.deleteConfirm': 'Tap again to delete it',
+  'accForm.edit': 'Edit account',
+  'accForm.new': 'New account',
+  'accForm.placeholder': 'Prepaid card',
+  'accForm.initial': 'Starting balance',
+  'accForm.rate': 'Rate 1 {from} = ? {to}',
+  'accForm.used': 'This account has transactions, so its currency can’t change. You can archive it.',
+  'accForm.unused': 'No transactions on this account.',
+  'accForm.delete': 'Delete account',
+  'accForm.deleteConfirm': 'Tap again to delete it',
+  'curForm.title': 'New currency',
+  'curForm.code': 'Code',
+  'curForm.symbol': 'Symbol',
+  'curForm.decimals': 'Decimals',
+  'curForm.codeErr': 'The code is three letters, like USD or JPY',
+  'curForm.exists': 'This currency is already there',
+  'curForm.note': 'Automatic rates use ECB data: for currencies the ECB doesn’t publish, enter the rate yourself.',
+  'mainCur.title': 'Change main currency',
+  'mainCur.body': 'From {from} to {to}. All totals will be shown in {to} and transaction values recalculated with this rate.',
+  'mainCur.rate': '1 {from} = ? {to}',
+  'mainCur.apply': 'Change currency',
+  'mainCur.rateErr': 'Enter the rate',
+
+  // Import
+  'imp.title': 'Import bank statement',
+  'imp.intro':
+    'Export your transactions as CSV from online banking and load them here. Separators, decimal commas and date formats are detected.',
+  'imp.pick': 'Choose CSV file',
+  'imp.pickOther': 'Choose another file',
+  'imp.emptyFile': 'The file looks empty or isn’t a CSV.',
+  'imp.columns': 'Columns',
+  'imp.known': 'known format: {name}',
+  'imp.date': 'Date',
+  'imp.desc': 'Description',
+  'imp.amount': 'Amount',
+  'imp.debit': 'Money out (debit)',
+  'imp.credit': 'Money in (credit)',
+  'imp.noCredit': '— none (signed amount)',
+  'imp.column': 'Column {n}',
+  'imp.newRules': 'New rules',
+  'imp.contains': 'if it contains',
+  'imp.removeRule': 'Remove rule',
+  'imp.rulesNote': 'Rules also apply to future imports. Shorten the keyword to make them match more often.',
+  'imp.preview': 'Preview · {n} rows',
+  'imp.skipped': ', {n} skipped',
+  'imp.dup': 'already there',
+  'imp.rule': 'rule',
+  'imp.include': 'Include',
+  'imp.button.one': 'Import 1 transaction',
+  'imp.button.other': 'Import {n} transactions',
+  'imp.done.one': '1 transaction imported',
+  'imp.done.other': '{n} transactions imported',
+  'imp.doneNote': 'This bank’s format is saved: next time the columns will already be set.',
+
+  // Export e backup
+  'csv.date': 'Date',
+  'csv.time': 'Time',
+  'csv.type': 'Type',
+  'csv.category': 'Category',
+  'csv.goal': 'Stash',
+  'csv.account': 'Account',
+  'csv.toAccount': 'To account',
+  'csv.amount': 'Amount',
+  'csv.currency': 'Currency',
+  'csv.rate': 'Rate',
+  'csv.amountMain': 'Amount {code}',
+  'csv.note': 'Note',
+  'kind.expense': 'Expense',
+  'kind.income': 'Income',
+  'kind.transfer': 'Transfer',
+  'kind.save': 'Set aside',
+  'kind.release': 'Taken back',
+  'backup.notFig': 'This file isn’t a FIG backup.',
+
+  // Nomi predefiniti
+  'cat.groceries': 'Groceries',
+  'cat.home': 'Home',
+  'cat.bills': 'Bills',
+  'cat.transport': 'Transport',
+  'cat.lunch': 'Lunch',
+  'cat.coffee': 'Coffee',
+  'cat.goingOut': 'Going out',
+  'cat.health': 'Health',
+  'cat.clothes': 'Clothes',
+  'cat.subscriptions': 'Subscriptions',
+  'cat.gifts': 'Gifts',
+  'cat.other': 'Other',
+  'cat.salary': 'Salary',
+  'cat.extra': 'Extra',
+  'cat.refunds': 'Refunds',
+  'cat.otherIncome': 'Other',
+  'acc.main': 'Current account',
+  'acc.cash': 'Cash',
+}
+
+export type Key = keyof typeof en
+
+const it: Record<Key, string> = {
+  'common.save': 'Salva',
+  'common.cancel': 'Annulla',
+  'common.back': 'Indietro',
+  'common.close': 'Chiudi',
+  'common.archive': 'Archivia',
+  'common.restore': 'Ripristina',
+  'common.undo': 'Annulla',
+  'common.done': 'Fatto',
+  'common.add': 'Aggiungi',
+  'common.more': 'Altre',
+  'common.less': 'Meno',
+  'common.name': 'Nome',
+  'common.color': 'Colore',
+  'common.icon': 'Icona',
+  'common.currency': 'Valuta',
+  'common.account': 'Conto',
+  'common.note': 'Nota',
+  'common.today': 'oggi',
+  'common.yesterday': 'ieri',
+  'common.archived': 'archiviato',
+  'err.name': 'Scrivi un nome',
+  'err.amount': 'Scrivi un importo',
+  'err.rate': 'Inserisci il cambio {from} → {to}',
+  'err.sameAccount': 'Scegli due conti diversi',
+
+  'nav.thread': 'Filo',
+  'nav.weave': 'Trama',
+  'nav.goals': 'Gomitoli',
+  'nav.sections': 'Sezioni',
+  'nav.month': 'Mese',
+  'nav.prevMonth': 'Mese precedente',
+  'nav.nextMonth': 'Mese successivo',
+  'nav.currentMonth': 'Torna al mese corrente',
+  'nav.settings': 'Impostazioni',
+  'nav.add': 'Aggiungi movimento',
+
+  'hero.available': 'Disponibile',
+  'hero.endOfMonth': 'Saldo a fine mese',
+  'hero.projected': 'Saldo previsto',
+  'hero.lastDay': 'ultimo giorno del mese',
+  'hero.daysLeft': 'mancano {n} giorni a fine mese',
+  'hero.inGoals': '{amount} nei gomitoli',
+  'hero.elapsed': 'Mese trascorso',
+  'hero.used': 'Risorse del mese usate',
+  'hero.income': 'Entrate',
+  'hero.expense': 'Uscite',
+  'hero.saved': 'Da parte',
+
+  'empty.title': 'Il filo di {month} è ancora intatto',
+  'empty.body': 'Ogni entrata lo ingrossa, ogni uscita lo assottiglia.',
+
+  'onb.title': 'Da quanto parti?',
+  'onb.body': 'Scrivi quanto hai oggi su ogni conto: sarà l’inizio del filo.',
+  'onb.later': 'Più tardi',
+  'onb.start': 'Inizia',
+
+  'toast.expense': 'Uscita di {amount} salvata',
+  'toast.income': 'Entrata di {amount} salvata',
+  'toast.save': '{amount} in {goal}',
+  'toast.release': '{amount} ripresi da {goal}',
+  'toast.spentFrom': '{amount} spesi da {goal}',
+  'toast.transfer': 'Giroconto salvato',
+  'toast.edited': 'Modifica salvata',
+  'toast.deleted': 'Movimento eliminato',
+
+  'thread.start': 'Inizio mese',
+  'thread.forecast': 'Previsione a fine mese',
+  'thread.transfer': 'Giroconto',
+  'thread.saved': 'Messi da parte',
+  'thread.released': 'Ripresi dal gomitolo',
+  'thread.fromGoal': 'dal gomitolo {goal}',
+  'thread.uncategorized': 'Senza categoria',
+  'thread.stash': 'Gomitolo',
+
+  'add.new': 'Nuovo movimento',
+  'add.edit': 'Modifica movimento',
+  'mode.expense': 'Uscita',
+  'mode.income': 'Entrata',
+  'mode.goal': 'Gomitolo',
+  'mode.transfer': 'Giroconto',
+  'add.habits': 'Di solito a quest’ora',
+  'add.categories': 'Categorie',
+  'add.pickGoal': 'Quale gomitolo?',
+  'add.pickTo': 'Sposta su',
+  'add.from': 'Da',
+  'add.putAside': 'Metti da parte',
+  'add.takeBack': 'Riprendi',
+  'add.payFrom': 'Paga da',
+  'add.payAvailable': 'Disponibile',
+  'add.addNote': 'Aggiungi nota',
+  'add.notePlaceholder': 'Cos’era?',
+  'add.otherDay': 'Altro giorno…',
+  'add.newCategory': 'Nuova',
+  'add.categoryName': 'Nome categoria',
+  'add.create': 'Crea',
+  'add.saveBtn': 'Salva · {amount}',
+  'add.locked.category': 'Scegli una categoria per scrivere l’importo',
+  'add.locked.goal': 'Scegli un gomitolo per scrivere l’importo',
+  'add.locked.account': 'Scegli il conto su cui spostare i soldi',
+  'add.delete': 'Elimina movimento',
+  'add.deleteConfirm': 'Tocca di nuovo per eliminare',
+  'add.noGoals': 'Un gomitolo è un obiettivo: una vacanza, un regalo, un fondo per gli imprevisti.',
+  'add.createGoal': 'Crea il primo gomitolo',
+  'add.goalBalance': 'In questo gomitolo ci sono {amount}',
+
+  'weave.titleMonth': 'La trama di {month}',
+  'weave.titleYear': 'La trama del {year}',
+  'weave.spent': '{amount} di uscite',
+  'weave.none': 'Ancora nessuna uscita',
+  'weave.highlight': 'evidenziato: {name}',
+  'weave.month': 'Mese',
+  'weave.year': 'Anno',
+  'weave.noTx': 'Nessun movimento.',
+  'weave.newThisMonth': 'nuova questo mese',
+  'weave.vs': '{delta}% su {month}',
+  'weave.hint': 'Tocca una categoria per seguirne il filo nel tessuto',
+  'weave.weekdays': 'L M M G V S D',
+
+  'goals.title': 'Gomitoli',
+  'goals.summary': '{amount} messi da parte, fuori dal disponibile',
+  'goals.intro': 'Metti da parte soldi per qualcosa: escono dal disponibile e si avvolgono qui.',
+  'goals.of': 'di {amount}',
+  'goals.reached': 'Obiettivo raggiunto',
+  'goals.perMonth': '{amount} al mese fino a {date}',
+  'goals.overdue': 'Scadenza passata ({date})',
+  'goals.missing': 'Mancano {amount}',
+  'goals.thisMonth': 'questo mese {amount}',
+  'goals.putAside': 'Metti da parte',
+  'goals.spend': 'Spendi da qui',
+  'goals.takeBack': 'Riprendi',
+  'goals.new': 'Nuovo gomitolo',
+  'goals.newHint': 'Una vacanza, un regalo, un fondo per gli imprevisti',
+  'goals.archived': 'Archiviati ({n})',
+  'goalForm.edit': 'Modifica gomitolo',
+  'goalForm.what': 'Per cosa?',
+  'goalForm.placeholder': 'Vacanza a Lisbona',
+  'goalForm.target': 'Obiettivo ({symbol})',
+  'goalForm.optional': 'facoltativo',
+  'goalForm.by': 'Entro',
+  'goalForm.create': 'Crea gomitolo',
+  'goalForm.nameErr': 'Dai un nome al gomitolo',
+  'goalForm.history': 'Movimenti',
+  'goalForm.empty': 'Ancora niente. Quando il gomitolo non ti serve più puoi archiviarlo, oppure',
+  'goalForm.deleteIt': 'eliminarlo',
+  'goalForm.deleteConfirm': 'tocca di nuovo per eliminarlo',
+  'goalForm.emptyNow': 'Il gomitolo è vuoto: se l’obiettivo è concluso puoi archiviarlo.',
+  'goalForm.suggestions': 'Vacanza|Fondo imprevisti|Regali di Natale|Auto|Casa',
+  'goalForm.kindSave': 'Messi da parte',
+  'goalForm.kindRelease': 'Ripresi',
+  'goalForm.kindSpent': 'Speso',
+
+  'set.title': 'Impostazioni',
+  'set.language': 'Lingua',
+  'set.langAuto': 'Automatica (dispositivo)',
+  'set.expenseCats': 'Categorie di uscita',
+  'set.incomeCats': 'Categorie di entrata',
+  'set.newCategory': '+ Nuova categoria',
+  'set.moveUp': 'Sposta su {name}',
+  'set.moveDown': 'Sposta giù {name}',
+  'set.accounts': 'Conti',
+  'set.newAccount': '+ Nuovo conto',
+  'set.currencies': 'Valute',
+  'set.mainCurrency': 'Valuta principale',
+  'set.addCurrency': '+ Aggiungi valuta',
+  'set.data': 'Dati',
+  'set.import': 'Importa estratto conto (CSV)',
+  'set.exportCsv': 'Esporta movimenti in CSV',
+  'set.backup': 'Scarica backup completo',
+  'set.restore': 'Ripristina da backup',
+  'set.restoreWarn': 'Il ripristino sostituisce tutti i dati attuali con quelli del backup.',
+  'set.restoreConfirm': 'Sostituisci i dati',
+  'set.restored': 'Backup ripristinato.',
+  'set.readErr': 'Non riesco a leggere il file.',
+  'set.localNote':
+    'I dati sono salvati su questo dispositivo e sincronizzati con il tuo account. Un file di backup resta comodo per averne una copia tua.',
+  'set.account': 'Account',
+  'set.syncNow': 'Sincronizza ora',
+  'set.signOut': 'Esci',
+  'set.signOutWarn': '{n} modifiche non sono ancora sincronizzate e andranno perse se esci adesso.',
+  'set.signOutAnyway': 'Esci comunque',
+  'sync.syncing': 'Sincronizzazione…',
+  'sync.synced': 'Sincronizzato alle {time}',
+  'sync.never': 'Non ancora sincronizzato',
+  'sync.pending': '{n} modifiche in attesa',
+  'sync.error': 'Sincronizzazione non riuscita, riprovo a breve',
+  'sync.offline': 'Offline: le modifiche si sincronizzano quando torni in rete',
+  'sync.localMode': 'Modalità locale: accesso disattivato',
+  'auth.offline': 'Sei offline. Collegati a internet per il primo accesso su questo dispositivo.',
+  'auth.error': 'Non riesco a raggiungere il servizio di accesso.',
+  'auth.retry': 'Riprova',
+  'catForm.edit': 'Modifica categoria',
+  'catForm.newExpense': 'Nuova categoria di uscita',
+  'catForm.newIncome': 'Nuova categoria di entrata',
+  'catForm.placeholder': 'Palestra',
+  'catForm.used': 'Questa categoria ha dei movimenti: archiviala per toglierla dall’inserimento e tenerla nello storico.',
+  'catForm.unused': 'Nessun movimento usa questa categoria.',
+  'catForm.delete': 'Elimina categoria',
+  'catForm.deleteConfirm': 'Tocca di nuovo per eliminarla',
+  'accForm.edit': 'Modifica conto',
+  'accForm.new': 'Nuovo conto',
+  'accForm.placeholder': 'Carta prepagata',
+  'accForm.initial': 'Saldo iniziale',
+  'accForm.rate': 'Cambio 1 {from} = ? {to}',
+  'accForm.used': 'Il conto ha dei movimenti, quindi la valuta non si può cambiare. Puoi archiviarlo.',
+  'accForm.unused': 'Nessun movimento su questo conto.',
+  'accForm.delete': 'Elimina conto',
+  'accForm.deleteConfirm': 'Tocca di nuovo per eliminarlo',
+  'curForm.title': 'Nuova valuta',
+  'curForm.code': 'Codice',
+  'curForm.symbol': 'Simbolo',
+  'curForm.decimals': 'Decimali',
+  'curForm.codeErr': 'Il codice è di tre lettere, come USD o JPY',
+  'curForm.exists': 'Questa valuta c’è già',
+  'curForm.note': 'Il cambio automatico usa i tassi BCE: per valute che la BCE non pubblica lo inserisci a mano.',
+  'mainCur.title': 'Cambia valuta principale',
+  'mainCur.body': 'Da {from} a {to}. Tutti i totali verranno espressi in {to} e i controvalori dei movimenti ricalcolati con questo cambio.',
+  'mainCur.rate': '1 {from} = ? {to}',
+  'mainCur.apply': 'Cambia valuta',
+  'mainCur.rateErr': 'Inserisci il cambio',
+
+  'imp.title': 'Importa estratto conto',
+  'imp.intro':
+    'Esporta i movimenti in CSV dall’home banking e caricali qui. Riconosco separatori, virgola decimale e formati di data.',
+  'imp.pick': 'Scegli il file CSV',
+  'imp.pickOther': 'Scegli un altro file',
+  'imp.emptyFile': 'Il file sembra vuoto o non è un CSV.',
+  'imp.columns': 'Colonne',
+  'imp.known': 'formato riconosciuto: {name}',
+  'imp.date': 'Data',
+  'imp.desc': 'Descrizione',
+  'imp.amount': 'Importo',
+  'imp.debit': 'Uscite (Dare)',
+  'imp.credit': 'Entrate (Avere)',
+  'imp.noCredit': '— nessuna (importo con segno)',
+  'imp.column': 'Colonna {n}',
+  'imp.newRules': 'Regole nuove',
+  'imp.contains': 'se contiene',
+  'imp.removeRule': 'Togli regola',
+  'imp.rulesNote': 'Le regole valgono anche per i prossimi import. Accorcia la parola chiave per farle scattare più spesso.',
+  'imp.preview': 'Anteprima · {n} righe',
+  'imp.skipped': ', {n} ignorate',
+  'imp.dup': 'già presente',
+  'imp.rule': 'regola',
+  'imp.include': 'Includi',
+  'imp.button.one': 'Importa 1 movimento',
+  'imp.button.other': 'Importa {n} movimenti',
+  'imp.done.one': '1 movimento importato',
+  'imp.done.other': '{n} movimenti importati',
+  'imp.doneNote': 'Il formato di questa banca è salvato: la prossima volta le colonne saranno già impostate.',
+
+  'csv.date': 'Data',
+  'csv.time': 'Ora',
+  'csv.type': 'Tipo',
+  'csv.category': 'Categoria',
+  'csv.goal': 'Gomitolo',
+  'csv.account': 'Conto',
+  'csv.toAccount': 'Conto di destinazione',
+  'csv.amount': 'Importo',
+  'csv.currency': 'Valuta',
+  'csv.rate': 'Cambio',
+  'csv.amountMain': 'Importo {code}',
+  'csv.note': 'Nota',
+  'kind.expense': 'Uscita',
+  'kind.income': 'Entrata',
+  'kind.transfer': 'Giroconto',
+  'kind.save': 'Messo da parte',
+  'kind.release': 'Ripreso da gomitolo',
+  'backup.notFig': 'Questo file non è un backup di FIG.',
+
+  'cat.groceries': 'Spesa',
+  'cat.home': 'Casa',
+  'cat.bills': 'Bollette',
+  'cat.transport': 'Trasporti',
+  'cat.lunch': 'Pranzo',
+  'cat.coffee': 'Caffè',
+  'cat.goingOut': 'Uscite',
+  'cat.health': 'Salute',
+  'cat.clothes': 'Abbigliamento',
+  'cat.subscriptions': 'Abbonamenti',
+  'cat.gifts': 'Regali',
+  'cat.other': 'Altro',
+  'cat.salary': 'Stipendio',
+  'cat.extra': 'Extra',
+  'cat.refunds': 'Rimborsi',
+  'cat.otherIncome': 'Altro',
+  'acc.main': 'Conto',
+  'acc.cash': 'Contanti',
+}
+
+export type Lang = 'en' | 'it'
+export type LangSetting = 'auto' | Lang
+
+const DICTS: Record<Lang, Record<Key, string>> = { en, it }
+const LOCALES: Record<Lang, string> = { en: 'en-GB', it: 'it-IT' }
+const STORAGE_KEY = 'fig-lang'
+
+function deviceLang(): Lang {
+  const list = typeof navigator !== 'undefined' ? navigator.languages ?? [navigator.language] : []
+  return list.some((l) => l?.toLowerCase().startsWith('it')) ? 'it' : 'en'
+}
+
+export function readLangSetting(): LangSetting {
+  try {
+    const v = localStorage.getItem(STORAGE_KEY)
+    if (v === 'en' || v === 'it' || v === 'auto') return v
+  } catch {
+    /* storage non disponibile: si usa la lingua del dispositivo */
+  }
+  return 'auto'
+}
+
+export function writeLangSetting(setting: LangSetting) {
+  try {
+    localStorage.setItem(STORAGE_KEY, setting)
+  } catch {
+    /* non persistente, ma la scelta vale per la sessione */
+  }
+}
+
+export function resolveLang(setting: LangSetting): Lang {
+  return setting === 'auto' ? deviceLang() : setting
+}
+
+let current: Lang = resolveLang(readLangSetting())
+
+export function setLang(lang: Lang) {
+  current = lang
+  document.documentElement.lang = lang
+}
+
+export function getLang(): Lang {
+  return current
+}
+
+export function locale(): string {
+  return LOCALES[current]
+}
+
+export function t(key: Key, vars?: Record<string, string | number>): string {
+  let text = DICTS[current][key] ?? en[key] ?? key
+  if (vars) for (const [k, v] of Object.entries(vars)) text = text.replaceAll(`{${k}}`, String(v))
+  return text
+}
+
+/** Scelta tra singolare e plurale: usa le chiavi "x.one" e "x.other". */
+export function tn(base: 'imp.button' | 'imp.done', n: number): string {
+  return t(`${base}.${n === 1 ? 'one' : 'other'}` as Key, { n })
+}
+
+const dateCache = new Map<string, Intl.DateTimeFormat>()
+
+/** Formattatore di date nella lingua corrente (in cache). */
+export function dateFmt(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = current + JSON.stringify(options)
+  let f = dateCache.get(key)
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale(), options)
+    dateCache.set(key, f)
+  }
+  return f
+}
+
+/** Separatore decimale della lingua corrente. */
+export function decimalSep(): string {
+  return current === 'it' ? ',' : '.'
+}
+
+/**
+ * Legge un numero scritto a mano nella lingua corrente:
+ * "1.234,56" in italiano, "1,234.56" in inglese.
+ */
+export function parseLocaleNumber(text: string): number {
+  let v = text.trim().replace(/\s/g, '')
+  if (!v) return 0
+  v = current === 'it' ? v.replace(/\./g, '').replace(',', '.') : v.replace(/,/g, '')
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 0
+}
+
+/** Numero da mostrare in un campo modificabile, nel formato della lingua. */
+export function numberToInput(value: number): string {
+  if (!value) return ''
+  return String(value).replace('.', decimalSep())
+}
+
+/** Nome di un elemento predefinito: il nome scelto dall'utente se c'è, altrimenti la traduzione. */
+export function builtinName(item: { name: string; key?: string }, prefix: 'cat' | 'acc'): string {
+  if (item.name) return item.name
+  return item.key ? t(`${prefix}.${item.key}` as Key) : ''
+}

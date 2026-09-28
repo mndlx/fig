@@ -1,0 +1,12 @@
+{
+  "name": "FIG",
+  "short_name": "FIG",
+  "description": "Entrate e uscite, a modo tuo.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F4EFE6",
+  "theme_color": "#F4EFE6",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
