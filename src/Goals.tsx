@@ -59,11 +59,14 @@ export function YarnBall({ color, progress, size = 64, open = false }: { color: 
   )
 }
 
-/** Mesi rimanenti fino alla scadenza, contando quello in corso. */
-function monthsUntil(deadline: number): number {
-  const now = new Date()
-  const d = new Date(deadline)
-  return (d.getFullYear() - now.getFullYear()) * 12 + d.getMonth() - now.getMonth() + 1
+/**
+ * Mesi che restano davvero fino alla scadenza. Si contano i giorni e non i mesi di calendario:
+ * a fine settembre, settembre non vale più come un mese intero in cui mettere da parte.
+ * Scadenza passata: 0.
+ */
+export function monthsUntil(deadline: number, now = Date.now()): number {
+  if (deadline <= now) return 0
+  return Math.max(1, Math.round((deadline - now) / (30.44 * DAY)))
 }
 
 export type GoalStatus = 'reached' | 'onTrack' | 'behind' | 'pace' | 'needed' | 'overdue' | 'noTarget' | 'start'
@@ -392,16 +395,26 @@ export function GoalDetail({ data, goal, onBack, onEdit, onAdd, onOpenTx }: Deta
         </div>
       )}
 
-      <section className="card stats three">
-        <div className="stat">
-          <span className="stat-label">{t('goals.toGo')}</span>
-          <span className="stat-value">{goal.target > 0 ? money(s.missing) : t('goals.none')}</span>
-        </div>
-        <div className="stat">
-          <span className="stat-label">{t('goals.needed')}</span>
-          <span className="stat-value">{s.needed !== null ? money(round(s.needed)) : t('goals.none')}</span>
-          {goal.deadline && <span className="stat-extra">{t('goals.by', { date: monthYear().format(goal.deadline) })}</span>}
-        </div>
+      {s.status !== 'reached' && (
+      <section className={`card stats${goal.target > 0 ? ' three' : ''}`}>
+        {goal.target > 0 ? (
+          <>
+            <div className="stat">
+              <span className="stat-label">{t('goals.toGo')}</span>
+              <span className="stat-value">{money(s.missing)}</span>
+            </div>
+            <div className="stat">
+              <span className="stat-label">{t('goals.needed')}</span>
+              <span className="stat-value">{s.needed !== null ? money(round(s.needed)) : t('goals.none')}</span>
+              {goal.deadline && <span className="stat-extra">{t('goals.by', { date: monthYear().format(goal.deadline) })}</span>}
+            </div>
+          </>
+        ) : (
+          <div className="stat">
+            <span className="stat-label">{t('goals.thisMonth')}</span>
+            <span className="stat-value">{money(s.thisMonth, s.thisMonth !== 0)}</span>
+          </div>
+        )}
         <div className="stat">
           <span className="stat-label">{t('goals.pace')}</span>
           <span className="stat-value">{s.pace > 0 ? money(round(s.pace)) : t('goals.none')}</span>
@@ -413,8 +426,9 @@ export function GoalDetail({ data, goal, onBack, onEdit, onAdd, onOpenTx }: Deta
           )}
         </div>
       </section>
+      )}
 
-      {!goal.archived && (
+      {!goal.archived && (s.status !== 'reached' || auto.length > 0) && (
         <section className="card">
           <div className="card-head">
             <h2 className="card-title">
@@ -513,14 +527,17 @@ export function GoalForm({ data, goal, onDone, template }: FormProps) {
   const used = goal ? transactions.some((tx) => tx.goalId === goal.id) : false
   const saved = goal ? transactions.reduce((s, tx) => s + goalDelta(tx, goal.id), 0) : 0
   const targetMinor = parseTyped(target, mainCurrency.decimals)
+  const money = (v: number) => formatMoney(roundMoney(v, mainCurrency.decimals), mainCurrency)
+  const deadlineTs = (() => {
+    if (!deadline) return undefined
+    const [y, m] = deadline.split('-').map(Number)
+    return new Date(y, m, 0, 23, 59).getTime()
+  })()
+  const planMonths = deadlineTs ? monthsUntil(deadlineTs) : 0
+  const plan = targetMinor > saved && planMonths > 0 ? Math.ceil((targetMinor - saved) / planMonths) : null
 
   async function save() {
     if (!name.trim()) return setError(t('goalForm.nameErr'))
-    let deadlineTs: number | undefined
-    if (deadline) {
-      const [y, m] = deadline.split('-').map(Number)
-      deadlineTs = new Date(y, m, 0, 23, 59).getTime()
-    }
     const next: Goal = {
       id: goal?.id ?? crypto.randomUUID(),
       name: name.trim(),
@@ -587,6 +604,17 @@ export function GoalForm({ data, goal, onDone, template }: FormProps) {
             <input type="month" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
           </label>
         </div>
+        {(plan !== null || deadline) && (
+          <p className="form-hint">
+            {plan !== null && t('goalForm.plan', { amount: money(plan), date: monthYear().format(deadlineTs!) })}
+            {deadlineTs !== undefined && planMonths === 0 && t('goalForm.pastDate')}{' '}
+            {deadline && (
+              <button className="link-btn" onClick={() => setDeadline('')}>
+                {t('goalForm.clearDate')}
+              </button>
+            )}
+          </p>
+        )}
         <div className="field">
           {t('common.color')}
           <div className="swatches">
@@ -596,6 +624,7 @@ export function GoalForm({ data, goal, onDone, template }: FormProps) {
           </div>
         </div>
         {error && <p className="error">{error}</p>}
+        {goal && !goal.archived && saved > 0 && <p className="form-hint">{t('goalForm.archiveNote', { amount: formatMoney(saved, mainCurrency) })}</p>}
         <div className="form-actions">
           {goal && (
             <button className="secondary" onClick={toggleArchive}>
