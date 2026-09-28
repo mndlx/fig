@@ -2484,3 +2484,97 @@ main > .seg,
 .totals > span > span {
   margin-right: 0;
 }
+
+/* Trama: spesa quotidiana, da notare, spese di una categoria */
+
+.stats-foot.daily {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.stats-foot.daily .stat-label {
+  width: 100%;
+}
+.daily-value {
+  font-family: var(--serif);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.stats-foot.daily .delta {
+  margin-left: 0;
+}
+
+.insights .card-title {
+  margin-bottom: 10px;
+}
+.insights ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.insights li {
+  position: relative;
+  padding-left: 18px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.insights li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--brand-text);
+}
+.insights li.up::before {
+  background: var(--danger);
+}
+
+.legend-item.open {
+  background: var(--key);
+  border-radius: 12px;
+  padding-bottom: 6px;
+}
+.legend-item.open .legend-row {
+  background: none;
+}
+.cat-tx {
+  padding: 0 6px 0 48px;
+}
+.cat-tx-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 0;
+  font-size: 14px;
+  text-align: left;
+  border-top: 1px solid var(--line);
+}
+.cat-tx-row .grow {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cat-tx-row.due {
+  opacity: 0.55;
+}
+.cat-tx-date {
+  font-size: 12px;
+  color: var(--muted);
+  width: 44px;
+  flex: none;
+}
+.cat-tx-foot {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 6px 0 0;
+}

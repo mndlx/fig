@@ -4,7 +4,7 @@ import type { MonthView } from './App'
 import { CategoryIcon } from './catIcons'
 import type { AppData } from './data'
 import type { Category, Transaction } from './db'
-import { builtinName, dateFmt, t } from './i18n'
+import { builtinName, dateFmt, decimalSep, t } from './i18n'
 import { formatMoney } from './money'
 
 interface Props {
@@ -41,12 +41,17 @@ function sortedStrands(sums: Map<string, number>, catById: Map<string, Category>
     .sort((a, b) => (a.cat?.order ?? 99) - (b.cat?.order ?? 99))
 }
 
-/** Scala delle celle: il 85° percentile delle giornate, così un affitto non schiaccia tutto il resto. */
+/**
+ * Scala delle celle: il 95° percentile delle giornate. Un affitto non schiaccia il resto,
+ * ma la scala non è così bassa da riempire quasi tutte le celle.
+ */
 function scaleCap(values: number[]): number {
   const nonZero = values.filter((v) => v > 0).sort((a, b) => a - b)
   if (nonZero.length === 0) return 1
-  return Math.max(1, nonZero[Math.min(nonZero.length - 1, Math.floor(nonZero.length * 0.85))])
+  return Math.max(1, nonZero[Math.min(nonZero.length - 1, Math.floor(nonZero.length * 0.95))])
 }
+
+type Insight = { key: string; text: string; tone?: 'up' | 'down' }
 
 export function Trama({ data, view, monthOffset, onOpen, onPickMonth }: Props) {
   const [mode, setMode] = useState<'month' | 'year'>('month')
@@ -117,6 +122,45 @@ export function Trama({ data, view, monthOffset, onOpen, onPickMonth }: Props) {
     const legend = [...totals.entries()].sort((a, b) => b[1] - a[1])
     const fixed = txs.filter((tx) => tx.recurringId && (tx.kind === 'expense' || tx.kind === 'income')).sort((a, b) => a.date - b.date)
 
+    // ——— Da notare: poche osservazioni, solo quando dicono qualcosa ———
+    const unit = 10 ** mainCurrency.decimals
+    const insights: Insight[] = []
+    // 1. La categoria cresciuta di più rispetto al mese prima (almeno +20% e +20 unità).
+    let rise: { id: string; diff: number } | null = null
+    for (const [id, value] of totals) {
+      const before = prev.get(id) ?? 0
+      const diff = value - before
+      if (before > 0 && diff >= 20 * unit && diff / before >= 0.2 && (!rise || diff > rise.diff)) rise = { id, diff }
+    }
+    const riseFound = rise as { id: string; diff: number } | null
+    if (riseFound) insights.push({ key: 'rise', tone: 'up', text: t('weave.ins.rise', { name: name(riseFound.id), amount: formatMoney(riseFound.diff, mainCurrency) }) })
+    // 2. Il giorno della settimana in cui la spesa quotidiana è più alta (almeno 1,5 volte la media).
+    const byWeekday = Array.from({ length: 7 }, () => ({ total: 0, days: 0 }))
+    for (let i = 0; i < Math.min(days, elapsedDays); i++) byWeekday[new Date(y, m, i + 1).getDay()].days++
+    for (const tx of txs) if (tx.kind === 'expense' && isVariable(tx) && tx.date <= now) byWeekday[new Date(tx.date).getDay()].total += tx.mainAmount
+    const avgDay = variable / elapsedDays
+    let top: { wd: number; avg: number } | null = null
+    byWeekday.forEach((w, wd) => {
+      if (w.days < 2) return
+      const avg = w.total / w.days
+      if (!top || avg > top.avg) top = { wd, avg }
+    })
+    const topDay = top as { wd: number; avg: number } | null
+    if (topDay && avgDay > 0 && topDay.avg / avgDay >= 1.5) {
+      const weekdayName = dateFmt({ weekday: 'long' }).format(new Date(2024, 0, 7 + topDay.wd))
+      insights.push({
+        key: 'weekday',
+        text: t('weave.ins.weekday', { day: weekdayName, amount: formatMoney(Math.round(topDay.avg), mainCurrency), ratio: (topDay.avg / avgDay).toFixed(1).replace('.', decimalSep()) }),
+      })
+    }
+    // 3. La spesa singola più alta, escluse quelle fisse.
+    const biggest = txs.filter((tx) => tx.kind === 'expense' && isVariable(tx) && tx.date <= now).sort((a, b) => b.mainAmount - a.mainAmount)[0]
+    if (biggest && biggest.mainAmount >= 20 * unit)
+      insights.push({
+        key: 'biggest',
+        text: t('weave.ins.biggest', { name: biggest.note || name(biggest.categoryId ?? ''), amount: formatMoney(biggest.mainAmount, mainCurrency), date: shortDay().format(biggest.date) }),
+      })
+
     return {
       y,
       m,
@@ -136,8 +180,9 @@ export function Trama({ data, view, monthOffset, onOpen, onPickMonth }: Props) {
       total: sum(totals),
       prev,
       fixed,
+      insights,
     }
-  }, [view, transactions, withFixed, now])
+  }, [view, transactions, withFixed, now, mainCurrency])
 
   const year = useMemo(() => {
     const y = view.start.getFullYear()
@@ -190,13 +235,32 @@ export function Trama({ data, view, monthOffset, onOpen, onPickMonth }: Props) {
             {stat(t('weave.stat.income'), money(month.income))}
             {stat(t('weave.stat.saved'), money(month.saved))}
             {stat(t('weave.stat.left'), money(month.left, true), undefined, month.left < 0 ? 'negative' : 'positive')}
-            <p className="stats-foot">
-              {t('weave.daily', { amount: money(Math.round(month.daily)) })}
-              {month.prevDaily !== null && (
-                <span className="muted"> · {t('weave.dailyPrev', { month: prevName, amount: money(Math.round(month.prevDaily)) })}</span>
-              )}
-            </p>
+            <div className="stats-foot daily">
+              <span className="stat-label">{t('weave.dailyLabel')}</span>
+              <span className="daily-value">{t('weave.perDay', { amount: money(Math.round(month.daily)) })}</span>
+              {month.prevDaily !== null && month.prevDaily > 0 && (() => {
+                const change = Math.round(((month.daily - month.prevDaily) / month.prevDaily) * 100)
+                return (
+                  <span className={`delta ${change > 0 ? 'up' : change < 0 ? 'down' : 'new'}`} title={t('weave.dailyPrev', { month: prevName, amount: money(Math.round(month.prevDaily)) })}>
+                    {change > 0 ? '▲' : change < 0 ? '▼' : '='} {Math.abs(change)}% {t('weave.vsPrev', { month: prevName })}
+                  </span>
+                )
+              })()}
+            </div>
           </section>
+
+          {month.insights.length > 0 && (
+            <section className="card insights">
+              <h2 className="card-title">{t('weave.insights')}</h2>
+              <ul>
+                {month.insights.map((i) => (
+                  <li key={i.key} className={i.tone ?? ''}>
+                    {i.text}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           <section className="card">
             <div className="card-head">
@@ -328,8 +392,11 @@ export function Trama({ data, view, monthOffset, onOpen, onPickMonth }: Props) {
               const before = month.prev.get(id) ?? 0
               const delta = before > 0 ? Math.round(((value - before) / before) * 100) : null
               const share = legendTotal > 0 ? Math.round((value / legendTotal) * 100) : 0
+              const open = focus === id && mode === 'month'
+              const catTx = open ? view.monthTx.filter((tx) => tx.kind === 'expense' && (tx.categoryId ?? '') === id).reverse() : []
               return (
-                <button key={id} className={`legend-row${focus === id ? ' on' : ''}`} onClick={() => setFocus(focus === id ? null : id)}>
+                <div key={id} className={`legend-item${open ? ' open' : ''}`}>
+                <button className={`legend-row${focus === id ? ' on' : ''}`} onClick={() => setFocus(focus === id ? null : id)} aria-expanded={open}>
                   <span className="row-icon" style={{ '--c': color(id) } as CSSProperties}>
                     <CategoryIcon name={cat?.icon} size={16} />
                   </span>
@@ -348,6 +415,24 @@ export function Trama({ data, view, monthOffset, onOpen, onPickMonth }: Props) {
                     <span style={{ width: `${(value / legend[0][1]) * 100}%`, background: color(id) }} />
                   </span>
                 </button>
+                {open && (
+                  <div className="cat-tx">
+                    {catTx.map((tx) => (
+                      <button key={tx.id} className={`cat-tx-row${tx.date > now ? ' due' : ''}`} onClick={() => onOpen(tx)}>
+                        <span className="cat-tx-date">{shortDay().format(tx.date)}</span>
+                        <span className="grow">
+                          {tx.note || name(tx.categoryId ?? '')}
+                          {tx.recurringId && <span className="muted"> ↻</span>}
+                        </span>
+                        <span className="legend-value">{money(-tx.mainAmount)}</span>
+                      </button>
+                    ))}
+                    {catTx.length > 1 && (
+                      <p className="cat-tx-foot">{t('weave.catAvg', { n: catTx.length, amount: money(Math.round(value / catTx.length)) })}</p>
+                    )}
+                  </div>
+                )}
+                </div>
               )
             })}
           </div>
