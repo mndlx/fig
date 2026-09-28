@@ -2075,3 +2075,154 @@ select {
 .empty-weave p {
   margin: 4px 0;
 }
+
+/* Gomitoli: lista, riepilogo e dettaglio */
+
+.goals-total {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.goals-total-amount {
+  font-family: var(--serif);
+  font-size: 34px;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.goals-mix {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 10px;
+  gap: 2px;
+}
+.goals-mix span {
+  min-width: 3px;
+}
+
+.goal-list {
+  padding: 6px;
+}
+.goal-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 18px;
+}
+.goal-row + .goal-row {
+  border-top: 1px solid var(--line);
+}
+.goal-row.archived {
+  opacity: 0.55;
+}
+.goal-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 8px;
+  text-align: left;
+  border-radius: 16px;
+}
+.goal-row-main:hover {
+  background: var(--key);
+}
+.goal-row .goal-name {
+  font-size: 18px;
+}
+.goal-row .goal-amount {
+  font-size: 14px;
+}
+.goal-text {
+  flex: 1;
+}
+.goal-bar {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--key);
+  overflow: hidden;
+  margin: 6px 0 4px;
+}
+.goal-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--c);
+}
+.goal-status {
+  font-size: 12px;
+  color: var(--muted);
+}
+.goal-status.good {
+  color: var(--positive);
+}
+.goal-status.bad {
+  color: var(--danger);
+}
+.goal-quick {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  margin-right: 6px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: color-mix(in srgb, var(--c) 85%, var(--ink));
+  background: color-mix(in srgb, var(--c) 14%, var(--surface));
+  transition: transform 0.12s;
+}
+.goal-quick:active {
+  transform: scale(0.92);
+}
+
+.goal-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 8px 0 18px;
+}
+.goal-hero-amount {
+  font-family: var(--serif);
+  font-size: 40px;
+  letter-spacing: -0.02em;
+  margin: 12px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+.goal-hero .goal-status {
+  font-size: 14px;
+}
+.card.reached {
+  background: color-mix(in srgb, var(--positive) 12%, var(--surface));
+}
+.goal-hero + .goal-actions,
+.card.reached + .goal-actions {
+  margin: 0 0 14px;
+}
+.goal-actions button {
+  padding: 12px 6px;
+  font-size: 14px;
+}
+
+.auto-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+}
+.auto-row .grow {
+  flex: 1;
+}
+.auto-form {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr) auto;
+  gap: 8px;
+}
+.auto-form .input {
+  padding: 9px 10px;
+  font-size: 14px;
+}

@@ -511,7 +511,7 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
                   {t('add.payFrom')}: {payFromGoal ? payFromGoal.name : t('add.payAvailable')}
                 </button>
               )}
-              {!editing && (mode === 'expense' || mode === 'income') && (
+              {!editing && (mode === 'expense' || mode === 'income' || (mode === 'goal' && goalDir === 'save')) && (
                 <button className={`ctx${picker === 'repeat' ? ' on' : ''}${repeat !== 'none' ? ' tinted' : ''}`} onClick={() => setPicker(picker === 'repeat' ? null : 'repeat')}>
                   <IconRepeat size={15} />
                   {repeat === 'none' ? t('add.repeat') : t(`repeat.${repeat}` as Key)}

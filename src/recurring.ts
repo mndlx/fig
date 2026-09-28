@@ -35,7 +35,7 @@ function occurrence(rule: Recurring, ts: number): Transaction {
     rate: rule.rate,
     mainAmount: rule.mainAmount,
     date: ts,
-    categoryId: rule.categoryId,
+    categoryId: rule.categoryId || undefined,
     accountId: rule.accountId,
     goalId: rule.goalId,
     note: rule.note,
@@ -75,7 +75,7 @@ export async function materializeRecurring() {
 
 /** Nuova serie a partire da un movimento appena salvato (che diventa la prima scadenza). */
 export async function createSeries(first: Transaction, frequency: Frequency): Promise<Transaction> {
-  if (first.kind !== 'expense' && first.kind !== 'income') return first
+  if (first.kind !== 'expense' && first.kind !== 'income' && first.kind !== 'save') return first
   const rule: Recurring = {
     id: crypto.randomUUID(),
     kind: first.kind,
@@ -100,6 +100,29 @@ export async function createSeries(first: Transaction, frequency: Frequency): Pr
   })
   await materializeRecurring()
   return tx
+}
+
+/** Accantonamento automatico in un gomitolo, a partire da oggi (la prima quota viene messa da parte subito). */
+export async function createAutoSave(goalId: string, amount: number, currency: string, accountId: string, frequency: Frequency) {
+  const now = Date.now()
+  const rule: Recurring = {
+    id: crypto.randomUUID(),
+    kind: 'save',
+    amount,
+    currency,
+    rate: 1,
+    mainAmount: amount,
+    categoryId: '',
+    accountId,
+    goalId,
+    note: '',
+    frequency,
+    start: now,
+    next: now,
+    active: true,
+  }
+  await db.recurring.put(rule)
+  await materializeRecurring()
 }
 
 /** Elimina la serie: i movimenti passati restano, quelli futuri generati vengono tolti. */

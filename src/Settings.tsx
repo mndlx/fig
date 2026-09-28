@@ -176,20 +176,21 @@ function SettingsMain({
         <div className="list">
           {data.recurring.map((r) => {
             const cat = categories.find((c) => c.id === r.categoryId)
+            const goal = r.kind === 'save' ? data.goals.find((g) => g.id === r.goalId) : undefined
             const cur = currencies.find((c) => c.code === r.currency) ?? mainCurrency
             return (
               <button key={r.id} className={`list-row${r.active ? '' : ' archived'}`} onClick={() => go({ type: 'recurring', rule: r })}>
-                <span className="row-icon" style={{ '--c': cat?.color ?? 'var(--muted)' } as CSSProperties}>
-                  <CategoryIcon name={cat?.icon} size={18} />
+                <span className="row-icon" style={{ '--c': goal?.color ?? cat?.color ?? 'var(--muted)' } as CSSProperties}>
+                  <CategoryIcon name={goal ? 'piggy' : cat?.icon} size={18} />
                 </span>
                 <span className="grow">
-                  {r.note || (cat ? builtinName(cat, 'cat') : '')}
+                  {r.note || goal?.name || (cat ? builtinName(cat, 'cat') : '')}
                   <span className="muted small" style={{ display: 'block' }}>
                     {t(`repeat.${r.frequency}` as Key)} ·{' '}
                     {r.active ? t('set.recurringNext', { date: dateFmt({ day: 'numeric', month: 'short' }).format(r.next) }) : t('set.recurringPaused')}
                   </span>
                 </span>
-                <span className="legend-value">{formatMoney(r.kind === 'expense' ? -r.amount : r.amount, cur, { sign: r.kind === 'income' })}</span>
+                <span className="legend-value">{formatMoney(r.kind === 'income' ? r.amount : -r.amount, cur, { sign: r.kind === 'income' })}</span>
               </button>
             )
           })}
@@ -368,7 +369,7 @@ function RecurringForm({ data, rule, onDone }: { data: AppData; rule: Recurring;
   const [note, setNote] = useState(rule.note)
   const [error, setError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const kindLabel = rule.kind === 'income' ? t('add.kindIncome') : t('add.kindExpense')
+  const kindLabel = rule.kind === 'income' ? t('add.kindIncome') : rule.kind === 'save' ? t('add.kindSave') : t('add.kindExpense')
 
   async function save(active = rule.active) {
     const value = parseTyped(amount, currency.decimals)

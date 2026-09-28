@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AddSheet, type SheetPreset } from './AddSheet'
 import { goalBalances, signedMain, useAppData, type AppData } from './data'
 import { db, type Currency, type Goal, type Transaction } from './db'
-import { GoalForm, Goals, type GoalTemplate } from './Goals'
+import { GoalDetail, GoalForm, Goals, type GoalTemplate } from './Goals'
 import { builtinName, dateFmt, getLang, readLangSetting, resolveLang, setLang, t, writeLangSetting, type LangSetting } from './i18n'
 import { IconFig, IconGear, IconLeft, IconLoom, IconPlus, IconRight, IconThread, IconYarn } from './icons'
 import { formatMoney, moneyParts, parseTyped } from './money'
@@ -183,6 +183,7 @@ export default function App({ offline = false }: { offline?: boolean }) {
   const [monthOffset, setMonthOffset] = useState(0)
   const [sheet, setSheet] = useState<{ editing: Transaction | null; preset?: SheetPreset } | null>(null)
   const [goalForm, setGoalForm] = useState<{ goal: Goal | null; returnTo: Tab; template?: GoalTemplate } | null>(null)
+  const [goalDetail, setGoalDetail] = useState<string | null>(null)
   const [freshId, setFreshId] = useState<string | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
   const [onboardingDone, setOnboardingDone] = useState(() => readFlag('fig-onboarding'))
@@ -323,10 +324,30 @@ export default function App({ offline = false }: { offline?: boolean }) {
           data={data}
           goal={goalForm.goal}
           template={goalForm.template}
-          onDone={() => {
+          onDone={(saved) => {
             setTab(goalForm.returnTo)
             setGoalForm(null)
+            // Nuovo gomitolo: si apre la sua pagina. Archiviato o eliminato: si torna alla lista.
+            if (saved && !saved.archived) setGoalDetail(saved.id)
+            else if (!saved) setGoalDetail(null)
           }}
+        />
+        {sheetEl}
+        {toastEl}
+      </div>
+    )
+  }
+
+  const detailGoal = goalDetail ? data.goals.find((g) => g.id === goalDetail) : undefined
+  if (detailGoal) {
+    return (
+      <div className="app">
+        <GoalDetail
+          data={data}
+          goal={detailGoal}
+          onBack={() => setGoalDetail(null)}
+          onEdit={() => setGoalForm({ goal: detailGoal, returnTo: 'goals' })}
+          onAdd={(preset) => setSheet({ editing: null, preset })}
           onOpenTx={(tx) => setSheet({ editing: tx })}
         />
         {sheetEl}
@@ -439,7 +460,12 @@ export default function App({ offline = false }: { offline?: boolean }) {
       )}
 
       {tab === 'goals' && (
-        <Goals data={data} onAdd={(preset) => setSheet({ editing: null, preset })} onEdit={(goal, template) => setGoalForm({ goal, returnTo: 'goals', template })} />
+        <Goals
+          data={data}
+          onAdd={(preset) => setSheet({ editing: null, preset })}
+          onOpen={(goal) => setGoalDetail(goal.id)}
+          onEdit={(goal, template) => setGoalForm({ goal, returnTo: 'goals', template })}
+        />
       )}
 
       <div className="dock-wrap">

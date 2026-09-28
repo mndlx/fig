@@ -96,7 +96,8 @@ export type Frequency = 'week' | 'month' | 'year'
  */
 export interface Recurring {
   id: string
-  kind: 'expense' | 'income'
+  /** "save" = accantonamento automatico in un gomitolo (goalId). */
+  kind: 'expense' | 'income' | 'save'
   amount: number
   currency: string
   rate: number
