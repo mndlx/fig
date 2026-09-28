@@ -47,6 +47,34 @@ async function oidc() {
   return { meta: discovery, jwks: jwks! }
 }
 
+/**
+ * Controllo all'avvio: il server prova le proprie credenziali sul token endpoint.
+ * Keycloak risponde "Invalid client credentials" se il secret non è di questo client,
+ * "not enabled to retrieve service account" se il secret è giusto (e i service account sono spenti).
+ * Il secret non viene mai scritto nel log.
+ */
+export async function checkClientSecret(): Promise<string> {
+  if (config.authDisabled) return 'auth disabled'
+  if (!config.issuer || !config.clientSecret) return 'OIDC_CLIENT_SECRET is not set: sign-in will fail'
+  try {
+    const { meta } = await oidc()
+    const res = await fetch(meta.token_endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Authorization: `Basic ${Buffer.from(`${encodeURIComponent(config.clientId)}:${encodeURIComponent(config.clientSecret)}`).toString('base64')}`,
+      },
+      body: new URLSearchParams({ grant_type: 'client_credentials' }),
+    })
+    if (res.ok) return 'client secret accepted'
+    const body = (await res.json().catch(() => ({}))) as { error?: string; error_description?: string }
+    if (/service account/i.test(body.error_description ?? '')) return 'client secret accepted'
+    return `client secret REJECTED by Keycloak (${body.error ?? res.status}: ${body.error_description ?? ''}) — check OIDC_CLIENT_SECRET belongs to client "${config.clientId}"`
+  } catch (e) {
+    return `could not check the client secret: ${e instanceof Error ? e.message : e}`
+  }
+}
+
 const random = (bytes = 32) => crypto.randomBytes(bytes).toString('base64url')
 const redirectUri = () => `${config.publicUrl}/auth/callback`
 

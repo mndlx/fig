@@ -28,3 +28,5 @@ server/data
 .env
 server/.env
 
+.env.json
+*.env.json

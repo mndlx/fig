@@ -1,7 +1,7 @@
 import express from 'express'
 import fs from 'node:fs'
 import path from 'node:path'
-import { authRouter, requireAuth } from './auth.ts'
+import { authRouter, checkClientSecret, requireAuth } from './auth.ts'
 import { config } from './config.ts'
 import { openDb } from './db.ts'
 import { syncRouter } from './sync.ts'
@@ -34,4 +34,5 @@ app.listen(config.port, () => {
   else if (!config.issuer) console.warn('  OIDC_ISSUER is not set: sign-in will fail.')
   else if (!config.clientSecret) console.warn('  OIDC_CLIENT_SECRET is not set: sign-in will fail.')
   else console.log(`  identity:   ${config.issuer} (client ${config.clientId})`)
+  void checkClientSecret().then((result) => console.log(`  keycloak:   ${result}`))
 })
