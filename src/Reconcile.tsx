@@ -1,10 +1,11 @@
-import { IconCheck, IconX } from '@tabler/icons-react'
+import { IconCheck, IconWallet, IconX } from '@tabler/icons-react'
+import { ACCOUNT_KEY, remember } from './AddSheet'
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { CategoryIcon } from './catIcons'
 import { accountBalance, type AppData } from './data'
 import { db, type Account, type Category, type Transaction } from './db'
-import { builtinName, numberToInput, t } from './i18n'
+import { builtinName, decimalSep, t } from './i18n'
 import { convertMinor, fetchRate, formatMoney, fromMinor, parseTyped } from './money'
 
 /** Categorie predefinite per gli allineamenti: create al primo uso sui database che non le hanno ancora. */
@@ -24,13 +25,26 @@ interface Props {
  * Allineamento di un conto: si scrive il saldo reale (quello della banca o del portafoglio)
  * e la differenza con FIG diventa un movimento, di solito commissioni addebitate in automatico.
  */
-export function Reconcile({ data, account, onClose, onSaved }: Props) {
+export function Reconcile({ data, account: initialAccount, onClose, onSaved }: Props) {
   const { currencies, mainCurrency, categories, transactions } = data
+  const activeAccounts = data.accounts.filter((a) => !a.archived)
+  const [accountId, setAccountId] = useState(initialAccount.id)
+  const account = data.accounts.find((a) => a.id === accountId) ?? initialAccount
   const currency = currencies.find((c) => c.code === account.currency) ?? mainCurrency
   const foreign = currency.code !== mainCurrency.code
   const current = accountBalance(account, data)
   const [input, setInput] = useState('')
+
+  function pickAccount(id: string) {
+    setAccountId(id)
+    remember.set(ACCOUNT_KEY, id)
+    setInput('')
+    setError('')
+  }
   const [rate, setRate] = useState<number | null>(foreign ? null : 1)
+  useEffect(() => {
+    if (!foreign) setRate(1)
+  }, [foreign])
   const [picked, setPicked] = useState<Record<'expense' | 'income', string>>({ expense: ADJUST_CATEGORIES.expense.id, income: ADJUST_CATEGORIES.income.id })
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
@@ -109,6 +123,16 @@ export function Reconcile({ data, account, onClose, onSaved }: Props) {
         <p className="muted small" style={{ margin: 0 }}>
           {t('align.intro')}
         </p>
+        {activeAccounts.length > 1 && (
+          <div className="ctx-row align-accounts" role="radiogroup" aria-label={t('align.account')}>
+            {activeAccounts.map((a) => (
+              <button key={a.id} role="radio" aria-checked={a.id === account.id} className={`ctx${a.id === account.id ? ' on' : ''}`} onClick={() => pickAccount(a.id)}>
+                <IconWallet size={15} />
+                {builtinName(a, 'acc')}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="rec-compare">
           <div>
@@ -121,8 +145,9 @@ export function Reconcile({ data, account, onClose, onSaved }: Props) {
               className="input rec-input"
               inputMode="decimal"
               autoFocus
+              key={account.id}
               value={input}
-              placeholder={numberToInput(fromMinor(current, currency.decimals)) || '0'}
+              placeholder={fromMinor(current, currency.decimals).toFixed(currency.decimals).replace('.', decimalSep())}
               onChange={(e) => (setInput(e.target.value), setError(''))}
               onKeyDown={(e) => e.key === 'Enter' && save()}
             />

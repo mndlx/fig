@@ -2859,3 +2859,33 @@ button.hero-account:active {
 .bar-actions .icon-btn {
   width: 32px;
 }
+
+/* Scorciatoia per l'allineamento dal "+" */
+.align-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px dashed color-mix(in srgb, var(--ink) 22%, transparent);
+  text-align: left;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.align-link svg {
+  color: var(--muted);
+  flex: none;
+}
+.align-link .grow {
+  flex: 1;
+  min-width: 0;
+}
+.align-link:active {
+  background: var(--key);
+}
+.align-accounts {
+  justify-content: flex-start;
+}

@@ -1,4 +1,4 @@
-import { IconArrowLeft, IconBackspace, IconCalculator, IconCalendar, IconCheck, IconChevronDown, IconNote, IconPigMoney, IconPlus, IconRepeat, IconWallet, IconX } from '@tabler/icons-react'
+import { IconArrowLeft, IconBackspace, IconCalculator, IconCalendar, IconCheck, IconChevronDown, IconChevronRight, IconScale, IconNote, IconPigMoney, IconPlus, IconRepeat, IconWallet, IconX } from '@tabler/icons-react'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CategoryIcon } from './catIcons'
 import { accountBalance, goalBalances, goalDelta, type AppData } from './data'
@@ -32,6 +32,8 @@ interface Props {
   onSaved: (tx: Transaction, previous: Transaction | null) => void
   onDeleted: (tx: Transaction) => void
   onNewGoal: () => void
+  /** Apre l'allineamento del saldo sul conto indicato. */
+  onAlign?: (accountId: string) => void
 }
 
 const MODES: Exclude<Mode, 'opening'>[] = ['expense', 'income', 'goal', 'transfer']
@@ -62,7 +64,7 @@ function modeOf(kind: Kind): Mode {
 }
 
 /** Scelte ricordate tra un inserimento e l'altro (solo su questo dispositivo). */
-const ACCOUNT_KEY = 'fig-last-account'
+export const ACCOUNT_KEY = 'fig-last-account'
 const MODE_KEY = 'fig-last-mode'
 export const remember = {
   get(key: string): string | null {
@@ -91,7 +93,7 @@ function rememberedMode(): Mode {
  * 2. "Quanto?": importo col tastierino, dettagli facoltativi e Salva.
  * In modifica si parte dal passo 2; la scelta fatta resta in alto e toccandola si torna al passo 1.
  */
-export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, onNewGoal }: Props) {
+export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, onNewGoal, onAlign }: Props) {
   const { accounts, categories, currencies, mainCurrency, transactions, goals } = data
   const activeAccounts = accounts.filter((a) => !a.archived)
   const activeGoals = goals.filter((g) => !g.archived)
@@ -526,6 +528,18 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
               </div>
             )}
             {error && <p className="error">{error}</p>}
+            {!editing && onAlign && (mode === 'expense' || mode === 'income') && (
+              <button className="align-link" onClick={() => onAlign(accountId)}>
+                <IconScale size={16} />
+                <span className="grow">
+                  {t('align.fromPlus')}
+                  <span className="muted small" style={{ display: 'block' }}>
+                    {t('align.fromPlusHint')}
+                  </span>
+                </span>
+                <IconChevronRight size={16} />
+              </button>
+            )}
           </div>
         )}
 

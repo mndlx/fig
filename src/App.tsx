@@ -293,6 +293,10 @@ export default function App({ offline = false }: { offline?: boolean }) {
       editing={sheet.editing}
       preset={sheet.preset}
       onClose={() => setSheet(null)}
+      onAlign={(accountId) => {
+        setSheet(null)
+        setReconcileId(accountId)
+      }}
       onNewGoal={() => {
         setSheet(null)
         setGoalForm({ goal: null, returnTo: 'goals' })
