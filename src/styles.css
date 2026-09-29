@@ -2932,3 +2932,70 @@ button.hero-account:active {
   flex: 1;
   min-width: 0;
 }
+
+/* Filo: spiegazione della previsione */
+.forecast-body {
+  position: relative;
+}
+.forecast-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.info-btn {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 50%;
+  color: var(--muted);
+}
+.info-btn:hover,
+.info-btn[aria-expanded='true'] {
+  color: var(--ink);
+}
+.info-pop {
+  position: absolute;
+  z-index: 4;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: var(--shadow), 0 0 0 1px var(--line);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink);
+  animation: rise 0.15s ease-out;
+}
+.info-pop p {
+  margin: 6px 0 0;
+}
+
+/* Filo: espandi e comprimi tutti i giorni */
+.fold-all {
+  order: 2;
+  margin-left: auto;
+  display: inline-flex;
+  gap: 2px;
+}
+.fold-all button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.fold-all button:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--key);
+}
+.fold-all button:disabled {
+  opacity: 0.35;
+}
+.row-day.collapsible .day-label::before {
+  content: '▾';
+  margin-right: 2px;
+  opacity: 0.7;
+}

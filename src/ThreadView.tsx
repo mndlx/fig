@@ -1,4 +1,5 @@
-import { IconChevronDown, IconSearch, IconX } from '@tabler/icons-react'
+import { IconChevronDown, IconChevronsDown, IconChevronsUp, IconInfoCircle, IconSearch, IconX } from '@tabler/icons-react'
+import type { ForecastInfo } from './App'
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { CategoryIcon } from './catIcons'
 import { signedMain } from './data'
@@ -27,6 +28,7 @@ interface Props {
   startBalance: number
   monthTx: Transaction[]
   forecast: number | null
+  forecastInfo?: ForecastInfo | null
   mainCurrency: Currency
   currencies: Currency[]
   categories: Category[]
@@ -54,6 +56,25 @@ const shortDay = () => dateFmt({ weekday: 'short', day: 'numeric' })
 const timeFormat = () => dateFmt({ hour: '2-digit', minute: '2-digit' })
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
+
+/** Giorni aperti o chiusi a mano, ricordati su questo dispositivo (true = aperto). */
+const DAYS_KEY = 'fig-days'
+function loadDays(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(DAYS_KEY) ?? '{}') ?? {}
+  } catch {
+    return {}
+  }
+}
+function storeDays(days: Record<string, boolean>) {
+  try {
+    // Si tengono solo gli ultimi giorni toccati, la memoria non cresce all'infinito.
+    const entries = Object.entries(days).slice(-400)
+    localStorage.setItem(DAYS_KEY, JSON.stringify(Object.fromEntries(entries)))
+  } catch {
+    // Memoria non disponibile: i giorni tornano alla disposizione predefinita.
+  }
+}
 
 function sameDay(a: Date, b: Date): boolean {
   return dayKey(a) === dayKey(b)
@@ -86,8 +107,16 @@ function YarnKnot({ x, y, r, color }: { x: number; y: number; r: number; color: 
 }
 
 export function ThreadView(props: Props) {
-  const { startBalance, monthTx, forecast, mainCurrency, currencies, categories, accounts, goals, freshId } = props
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const { startBalance, monthTx, forecast, forecastInfo, mainCurrency, currencies, categories, accounts, goals, freshId } = props
+  const [dayState, setDayState] = useState<Record<string, boolean>>(loadDays)
+  const [infoOpen, setInfoOpen] = useState(false)
+  // La spiegazione della previsione si chiude toccando altrove.
+  useEffect(() => {
+    if (!infoOpen) return
+    const close = () => setInfoOpen(false)
+    document.addEventListener('click', close)
+    return () => document.removeEventListener('click', close)
+  }, [infoOpen])
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
 
@@ -131,11 +160,14 @@ export function ThreadView(props: Props) {
     }
 
     // Dal più recente: previsione, giorni (aperti o compattati), inizio mese.
+    // Di base sono aperti oggi, ieri, i giorni futuri e quelli con un solo movimento;
+    // una scelta fatta a mano (o con "Espandi/Comprimi tutto") vale finché non la si cambia.
     const out: Row[] = []
     if (forecast !== null) out.push({ type: 'forecast', to: forecast, from: running })
     for (const day of [...days].reverse()) {
       const upcoming = day.date.getTime() > now.getTime() && !recent.has(day.key)
-      const open = upcoming || recent.has(day.key) || expanded.has(day.key) || day.key === freshDay || day.items.length === 1
+      const byDefault = upcoming || recent.has(day.key) || day.items.length === 1
+      const open = day.key === freshDay || (dayState[day.key] ?? byDefault)
       if (open) {
         out.push({ type: 'day', key: day.key, date: day.date, balance: day.end, spent: day.spent, upcoming })
         for (const item of [...day.items].reverse()) out.push({ type: 'tx', ...item })
@@ -145,7 +177,7 @@ export function ThreadView(props: Props) {
     }
     out.push({ type: 'start', balance: startBalance })
     return out
-  }, [startBalance, monthTx, forecast, expanded, freshDay])
+  }, [startBalance, monthTx, forecast, dayState, freshDay])
 
   // Riferimento per lo spessore: il saldo più alto toccato nel mese.
   const ref = useMemo(() => {
@@ -163,11 +195,34 @@ export function ThreadView(props: Props) {
     if (freshId) document.querySelector('.row-tx.fresh')?.scrollIntoView({ block: 'center', behavior: 'smooth' })
   }, [freshId, monthTx.length])
 
-  function toggle(key: string) {
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
+  function setDays(update: (prev: Record<string, boolean>) => Record<string, boolean>) {
+    setDayState((prev) => {
+      const next = update(prev)
+      storeDays(next)
+      return next
+    })
+  }
+
+  /** Apre o chiude un giorno, partendo da come è mostrato adesso. */
+  function toggle(key: string, openNow: boolean) {
+    setDays((prev) => {
+      const next = { ...prev }
+      delete next[key]
+      next[key] = !openNow
+      return next
+    })
+  }
+
+  const monthDays = useMemo(() => [...new Set(monthTx.map((tx) => dayKey(new Date(tx.date))))], [monthTx])
+  const allOpen = rows.filter((r) => r.type === 'summary').length === 0
+  const allClosed = !rows.some((r) => r.type === 'day')
+  function setAll(open: boolean) {
+    setDays((prev) => {
+      const next = { ...prev }
+      for (const key of monthDays) {
+        delete next[key]
+        next[key] = open
+      }
       return next
     })
   }
@@ -248,6 +303,18 @@ export function ThreadView(props: Props) {
 
   const searchBar = (
     <div className={`thread-search${searching ? ' open' : ''}`}>
+      {!searching && monthDays.length > 1 && (
+        <span className="fold-all">
+          <button disabled={allOpen} onClick={() => setAll(true)}>
+            <IconChevronsDown size={15} />
+            {t('thread.expandAll')}
+          </button>
+          <button disabled={allClosed} onClick={() => setAll(false)}>
+            <IconChevronsUp size={15} />
+            {t('thread.collapseAll')}
+          </button>
+        </span>
+      )}
       {searching ? (
         <>
           <IconSearch size={17} />
@@ -272,7 +339,7 @@ export function ThreadView(props: Props) {
       ) : (
         <button className="search-open" onClick={() => setSearching(true)}>
           <IconSearch size={16} />
-          {t('thread.search')}
+          {t('thread.searchShort')}
         </button>
       )}
     </div>
@@ -335,9 +402,38 @@ export function ThreadView(props: Props) {
                   opacity={0.55}
                 />
               </svg>
-              <div className="row-body">
-                <span className="muted">{t('thread.forecast')}</span>
+              <div className="row-body forecast-body">
+                <span className="muted forecast-label">
+                  {t('thread.forecast')}
+                  {forecastInfo && (
+                    <button
+                      className="info-btn"
+                      aria-label={t('thread.forecastWhat')}
+                      aria-expanded={infoOpen}
+                      onClick={(e) => (e.stopPropagation(), setInfoOpen((v) => !v))}
+                    >
+                      <IconInfoCircle size={16} />
+                    </button>
+                  )}
+                </span>
                 <span className={row.to < 0 ? 'amount negative' : 'muted'}>{formatMoney(row.to, mainCurrency)}</span>
+                {infoOpen && forecastInfo && (
+                  <div className="info-pop" role="note" onClick={() => setInfoOpen(false)}>
+                    <strong>{t('thread.forecastWhat')}</strong>
+                    <p>
+                      {t('thread.forecastHow', {
+                        perDay: formatMoney(forecastInfo.perDay, mainCurrency),
+                        days: forecastInfo.daysLeft,
+                        amount: formatMoney(forecastInfo.projected, mainCurrency),
+                      })}
+                    </p>
+                    <p className="muted">
+                      {forecastInfo.excluded > 0
+                        ? t('thread.forecastExcluded', { amount: formatMoney(forecastInfo.excluded, mainCurrency) })
+                        : t('thread.forecastExcludedNone')}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           )
@@ -362,9 +458,13 @@ export function ThreadView(props: Props) {
           return (
             <div
               key={`day-${row.key}`}
-              className={`row row-day${row.upcoming ? ' upcoming-day' : ''}${expanded.has(row.key) ? ' collapsible' : ''}`}
+              className={`row row-day collapsible${row.upcoming ? ' upcoming-day' : ''}`}
               style={{ height: h }}
-              onClick={expanded.has(row.key) ? () => toggle(row.key) : undefined}
+              role="button"
+              tabIndex={0}
+              aria-expanded="true"
+              onClick={() => toggle(row.key, true)}
+              onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), toggle(row.key, true))}
             >
               <svg width={LANE} height={h} aria-hidden="true">
                 <path d={pathBetween(0, h, y)} stroke={tone(row.balance)} strokeWidth={width(row.balance)} fill="none" strokeLinecap="round" />
@@ -384,7 +484,7 @@ export function ThreadView(props: Props) {
           const colors = [...new Set(row.txs.map((tx) => (tx.categoryId ? catById.get(tx.categoryId)?.color : tx.goalId ? goalById.get(tx.goalId)?.color : undefined)).filter(Boolean))].slice(0, 3) as string[]
           const net = row.after - row.before
           return (
-            <button key={`sum-${row.key}`} className="row row-summary" style={{ height: h }} onClick={() => toggle(row.key)} aria-expanded="false">
+            <button key={`sum-${row.key}`} className="row row-summary" style={{ height: h }} onClick={() => toggle(row.key, false)} aria-expanded="false">
               <svg width={LANE} height={h} aria-hidden="true">
                 <path d={pathBetween(0, mid, y)} stroke={tone(row.after)} strokeWidth={width(row.after)} fill="none" strokeLinecap="round" />
                 <path d={pathBetween(mid, h, y)} stroke={tone(row.before)} strokeWidth={width(row.before)} fill="none" strokeLinecap="round" />
@@ -459,11 +559,6 @@ export function ThreadView(props: Props) {
           </button>
         )
       })}
-      {rows.some((r) => r.type === 'day' && expanded.has(r.key)) && (
-        <button className="collapse-all" onClick={() => setExpanded(new Set())}>
-          {t('thread.collapse')}
-        </button>
-      )}
     </div>
   )
 }

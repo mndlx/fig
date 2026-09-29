@@ -33,11 +33,28 @@ export interface MonthView {
   balanceNow: number
   endBalance: number
   forecast: number | null
+  /** Come è stata calcolata la previsione, per la spiegazione nel filo. */
+  forecastInfo: ForecastInfo | null
   /** Quota del mese trascorsa, da 0 a 1. */
   elapsed: number
   daysLeft: number
   /** Quota delle risorse del mese (saldo iniziale + entrate) già uscita dal disponibile. */
   usedShare: number
+}
+
+export interface ForecastInfo {
+  /** Spesa media al giorno finora (solo spese di tutti i giorni). */
+  perDay: number
+  daysLeft: number
+  /** Spesa probabile nei giorni che mancano, al netto di quella già registrata con data futura. */
+  projected: number
+  /** Uscite lasciate fuori dal ritmo: ricorrenti, allineamenti, spese eccezionali. */
+  excluded: number
+}
+
+/** Spese "di tutti i giorni": né ricorrenti, né allineamenti, né pagate da un gomitolo. */
+function isEveryday(tx: Transaction): boolean {
+  return tx.kind === 'expense' && !tx.goalId && !tx.recurringId && tx.source !== 'adjust'
 }
 
 export function computeMonth(data: AppData, monthOffset: number): MonthView {
@@ -58,7 +75,6 @@ export function computeMonth(data: AppData, monthOffset: number): MonthView {
   let expense = 0
   let saved = 0
   let balanceNow = startBalance
-  let spentSoFar = 0
   let outOfPocket = 0
   for (const tx of monthTx) {
     if (tx.kind === 'income') income += tx.mainAmount
@@ -71,8 +87,6 @@ export function computeMonth(data: AppData, monthOffset: number): MonthView {
     if (delta < 0) outOfPocket -= delta
     if (tx.date <= now.getTime()) {
       balanceNow += delta
-      // Il ritmo di spesa conta solo le uscite pagate dal disponibile.
-      if (tx.kind === 'expense' && !tx.goalId) spentSoFar += tx.mainAmount
     }
   }
   const endBalance = monthTx.reduce((b, tx) => b + signedMain(tx), startBalance)
@@ -80,22 +94,32 @@ export function computeMonth(data: AppData, monthOffset: number): MonthView {
   const elapsed = Math.min(1, Math.max(0, (now.getTime() - start.getTime()) / total))
   const daysLeft = Math.max(0, Math.ceil((end.getTime() - now.getTime()) / DAY))
 
-  // Previsione: il ritmo medio di spesa finora, proiettato sui giorni che mancano,
-  // al netto delle uscite già registrate con data futura.
+  // Previsione: il ritmo medio delle spese di tutti i giorni finora, proiettato sui giorni che mancano,
+  // al netto di quelle già registrate con data futura. Ricorrenti e allineamenti sono già nel saldo
+  // o non si ripetono; le spese eccezionali (oltre 4 volte la mediana) non fanno ritmo.
   let forecast: number | null = null
-  if (isCurrent && spentSoFar > 0) {
+  let forecastInfo: ForecastInfo | null = null
+  const past = monthTx.filter((tx) => tx.date <= now.getTime() && tx.kind === 'expense' && !tx.goalId)
+  const everyday = past.filter(isEveryday)
+  if (isCurrent && everyday.length > 0) {
+    const sorted = everyday.map((tx) => tx.mainAmount).sort((a, b) => a - b)
+    const median = sorted[Math.floor(sorted.length / 2)]
+    const cap = sorted.length >= 4 ? median * 4 : Infinity
+    const spentSoFar = everyday.filter((tx) => tx.mainAmount <= cap).reduce((s, tx) => s + tx.mainAmount, 0)
+    const excluded = past.reduce((s, tx) => s + tx.mainAmount, 0) - spentSoFar
     const elapsedDays = Math.max(1, (now.getTime() - start.getTime()) / DAY)
     const remainingDays = (end.getTime() - now.getTime()) / DAY
-    const futureSpent = monthTx
-      .filter((t) => t.date > now.getTime() && t.kind === 'expense' && !t.goalId)
-      .reduce((s, t) => s + t.mainAmount, 0)
-    forecast = Math.round(endBalance - Math.max(0, (spentSoFar / elapsedDays) * remainingDays - futureSpent))
+    const futureSpent = monthTx.filter((t) => t.date > now.getTime() && isEveryday(t)).reduce((s, t) => s + t.mainAmount, 0)
+    const perDay = spentSoFar / elapsedDays
+    const projected = Math.round(Math.max(0, perDay * remainingDays - futureSpent))
+    forecast = endBalance - projected
+    forecastInfo = { perDay: Math.round(perDay), daysLeft: Math.ceil(remainingDays), projected, excluded }
   }
 
   const pool = startBalance + income + opening
   const usedShare = pool > 0 ? outOfPocket / pool : outOfPocket > 0 ? 1 : 0
 
-  return { start, end, isCurrent, monthTx, startBalance, income, expense, saved, balanceNow, endBalance, forecast, elapsed, daysLeft, usedShare }
+  return { start, end, isCurrent, monthTx, startBalance, income, expense, saved, balanceNow, endBalance, forecast, forecastInfo, elapsed, daysLeft, usedShare }
 }
 
 function BigMoney({ minor, currency }: { minor: number; currency: Currency }) {
@@ -518,6 +542,7 @@ export default function App({ offline = false }: { offline?: boolean }) {
             startBalance={view.startBalance}
             monthTx={view.monthTx}
             forecast={view.forecast}
+            forecastInfo={view.forecastInfo}
             mainCurrency={mainCurrency}
             currencies={data.currencies}
             categories={data.categories}
