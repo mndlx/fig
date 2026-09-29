@@ -2769,3 +2769,93 @@ main > .seg,
   flex: none;
   margin-top: 1px;
 }
+
+/* Allineamento del saldo */
+button.hero-account {
+  color: inherit;
+  border: 1px solid rgba(246, 236, 233, 0.14);
+}
+button.hero-account:active {
+  background: rgba(246, 236, 233, 0.2);
+}
+.hero-warn-link {
+  display: inline;
+  padding: 0;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.sheet.reconcile {
+  gap: 12px;
+  max-width: 480px;
+}
+.rec-compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+.rec-compare > * {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.rec-value {
+  font-family: var(--serif);
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.6;
+}
+.rec-input {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+.rec-diff {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--key);
+  font-size: 14px;
+  line-height: 1.4;
+}
+.rec-ok {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--positive);
+  font-size: 14px;
+}
+.chip.rec-chip {
+  padding: 8px 14px 8px 10px;
+  font-size: 14px;
+}
+.chip.rec-chip::before {
+  display: none;
+}
+.chip.rec-chip svg {
+  color: var(--c);
+}
+.rec-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.rec-card .grow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Header: il mese resta su una riga anche con la calcolatrice accanto alle impostazioni */
+.month-label {
+  white-space: nowrap;
+  min-width: 0;
+}
+.bar .month-nav .icon-btn,
+.bar-actions .icon-btn {
+  width: 32px;
+}

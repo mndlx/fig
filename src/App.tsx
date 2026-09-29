@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AddSheet, remember, type SheetPreset } from './AddSheet'
 import { Calculator } from './Calculator'
+import { Reconcile } from './Reconcile'
 import { IconAlertTriangle, IconCalculator } from '@tabler/icons-react'
 import { accountBalance, goalBalances, signedMain, useAppData, type AppData } from './data'
 import { db, type Currency, type Goal, type Transaction } from './db'
@@ -193,6 +194,7 @@ export default function App({ offline = false }: { offline?: boolean }) {
   }
   const [monthOffset, setMonthOffset] = useState(0)
   const [calcOpen, setCalcOpen] = useState(false)
+  const [reconcileId, setReconcileId] = useState<string | null>(null)
   const [sheet, setSheet] = useState<{ editing: Transaction | null; preset?: SheetPreset } | null>(null)
   const [goalForm, setGoalForm] = useState<{ goal: Goal | null; returnTo: Tab; template?: GoalTemplate } | null>(null)
   const [goalDetail, setGoalDetail] = useState<string | null>(null)
@@ -404,6 +406,17 @@ export default function App({ offline = false }: { offline?: boolean }) {
           </button>
         </span>
       </header>
+      {reconcileId && data.accounts.some((a) => a.id === reconcileId) && (
+        <Reconcile
+          data={data}
+          account={data.accounts.find((a) => a.id === reconcileId)!}
+          onClose={() => setReconcileId(null)}
+          onSaved={(tx) => {
+            setFreshId(tx.id)
+            showToast(t('align.done'), () => db.transactions.delete(tx.id))
+          }}
+        />
+      )}
       {calcOpen && (
         <Calculator
           onClose={() => setCalcOpen(false)}
@@ -472,12 +485,12 @@ export default function App({ offline = false }: { offline?: boolean }) {
             {heroAccounts.length > 0 && (
               <div className="hero-accounts">
                 {heroAccounts.map(({ account, balance }) => (
-                  <span key={account.id} className="hero-account">
+                  <button key={account.id} className="hero-account" aria-label={t('align.title', { name: builtinName(account, 'acc') })} onClick={() => setReconcileId(account.id)}>
                     <span>{builtinName(account, 'acc')}</span>
                     <span className={balance < 0 ? 'negative' : undefined}>
                       {formatMoney(balance, data.currencies.find((c) => c.code === account.currency) ?? mainCurrency)}
                     </span>
-                  </span>
+                  </button>
                 ))}
               </div>
             )}
@@ -488,7 +501,10 @@ export default function App({ offline = false }: { offline?: boolean }) {
                 {t(overdrawn.length === 1 ? 'hero.overdrawn' : 'hero.overdrawnMany', {
                   name: builtinName(overdrawn[0].account, 'acc'),
                   n: overdrawn.length,
-                })}
+                })}{' '}
+                <button className="hero-warn-link" onClick={() => setReconcileId(overdrawn[0].account.id)}>
+                  {t('align.cta')}
+                </button>
                 </span>
               </p>
             )}

@@ -80,7 +80,8 @@ export interface Transaction {
   /** Gomitolo coinvolto: destinazione (save), origine (release) o fonte di pagamento (expense). */
   goalId?: string
   note: string
-  source: 'manual' | 'import'
+  /** "adjust": allineamento al saldo reale del conto (commissioni, arrotondamenti). */
+  source: 'manual' | 'import' | 'adjust'
   /** Identifica l'import CSV da cui proviene il movimento. */
   importId?: string
   /** Serie ricorrente che ha generato il movimento. */

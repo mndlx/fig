@@ -21,6 +21,7 @@ import { CATEGORY_ICONS, CategoryIcon } from './catIcons'
 import { accountBalance, type AppData } from './data'
 import { db, openingId, WOOL, type Account, type Category, type Frequency, type Recurring } from './db'
 import { saveOpening } from './opening'
+import { Reconcile } from './Reconcile'
 import { deleteSeries, updateSeries } from './recurring'
 import { builtinName, dateFmt, numberToInput, t, type Key, type LangSetting } from './i18n'
 import { IconLeft } from './icons'
@@ -747,6 +748,7 @@ function AccountForm({ data, acc, onDone }: { data: AppData; acc?: Account; onDo
   const [rate, setRate] = useState('')
   const [error, setError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [reconcile, setReconcile] = useState(false)
   const foreign = code !== mainCurrency.code
   const used = acc ? data.transactions.some((tx) => tx.kind !== 'opening' && (tx.accountId === acc.id || tx.toAccountId === acc.id)) : false
 
@@ -801,6 +803,18 @@ function AccountForm({ data, acc, onDone }: { data: AppData; acc?: Account; onDo
   return (
     <>
       <Header title={acc ? t('accForm.edit') : t('accForm.new')} onBack={onDone} />
+      {acc && !acc.archived && (
+        <section className="card rec-card">
+          <span className="grow">
+            <span className="stat-label">{t('align.inFig')}</span>
+            <span className={`rec-value${accountBalance(acc, data) < 0 ? ' negative' : ''}`}>{formatMoney(accountBalance(acc, data), currency)}</span>
+          </span>
+          <button className="secondary slim" onClick={() => setReconcile(true)}>
+            {t('align.cta')}
+          </button>
+        </section>
+      )}
+      {reconcile && acc && <Reconcile data={data} account={acc} onClose={() => setReconcile(false)} />}
       <div className="card form">
         <label className="field">
           {t('common.name')}
