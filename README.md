@@ -73,6 +73,24 @@ In Keycloak, client `fig` (Client authentication: On):
 - Valid redirect URIs: `https://fig.vlabstudio.net/auth/callback`, `http://localhost:5174/auth/callback`
 - Valid post logout redirect URIs: `https://fig.vlabstudio.net/`, `http://localhost:5174/`
 
+### Backup
+
+`scripts/backup.sh` gira sulla VPS ogni notte alle 03:30 (crontab di root, log in `/var/log/fig-backup.log`). Fa una copia coerente del database con l'API di backup di SQLite, ne controlla l'integrità e la salva compressa in `/opt/fig-backups` (fuori dal volume Docker), tenendo le ultime 14.
+
+```cron
+30 3 * * * /opt/fig/scripts/backup.sh >> /var/log/fig-backup.log 2>&1
+```
+
+Ripristino di una copia (sostituisce i dati attuali: prima fai un backup a mano con lo script):
+
+```bash
+cd /opt/fig && docker compose stop fig
+gunzip -c /opt/fig-backups/fig-AAAA-MM-GG-HHMM.db.gz > /tmp/fig.db
+docker run --rm -v fig_fig-data:/data -v /tmp/fig.db:/restore.db:ro busybox \
+  sh -c 'rm -f /data/fig.db-wal /data/fig.db-shm && cp /restore.db /data/fig.db && chown 1000:1000 /data/fig.db'
+docker compose start fig && rm /tmp/fig.db
+```
+
 ## Struttura
 
 | Percorso | Cosa contiene |
