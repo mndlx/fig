@@ -18,7 +18,7 @@ import {
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { exportCsv, exportJson, importJson } from './backup'
 import { CATEGORY_ICONS, CategoryIcon } from './catIcons'
-import type { AppData } from './data'
+import { accountBalance, type AppData } from './data'
 import { db, openingId, WOOL, type Account, type Category, type Frequency, type Recurring } from './db'
 import { saveOpening } from './opening'
 import { deleteSeries, updateSeries } from './recurring'
@@ -66,22 +66,6 @@ function Header({ title, onBack, action }: { title: string; onBack: () => void; 
 /** Numero dal campo di testo: accetta anche il punto decimale in italiano se non ci sono migliaia. */
 function rateFromInput(text: string): number {
   return Number(text.replace(',', '.'))
-}
-
-/** Saldo di un conto nella sua valuta: saldo iniziale, entrate, uscite e giroconti (i gomitoli non spostano soldi). */
-function balanceOf(acc: Account, data: AppData): number {
-  const now = Date.now()
-  // Importo nella valuta del conto: uguale se la valuta coincide, il controvalore se il conto è nella valuta principale.
-  const inAccount = (tx: AppData['transactions'][number]) =>
-    tx.currency === acc.currency ? tx.amount : acc.currency === data.mainCurrency.code ? tx.mainAmount : tx.amount
-  let b = acc.initialBalance
-  for (const tx of data.transactions) {
-    // Solo movimenti già avvenuti: le scadenze in arrivo non sono ancora uscite dal conto.
-    if (tx.kind === 'save' || tx.kind === 'release' || tx.date > now) continue
-    if (tx.accountId === acc.id) b += tx.kind === 'income' || tx.kind === 'opening' ? inAccount(tx) : -inAccount(tx)
-    if (tx.toAccountId === acc.id) b += inAccount(tx)
-  }
-  return b
 }
 
 /** Riga di menu: icona, etichetta, valore riassunto e freccia. */
@@ -163,7 +147,7 @@ function SettingsMain({
 
   const activeAccounts = accounts.filter((a) => !a.archived)
   const total = activeAccounts.reduce((sum, a) => {
-    const b = balanceOf(a, data)
+    const b = accountBalance(a, data)
     return sum + (a.currency === mainCurrency.code ? b : 0)
   }, 0)
   const expenseCats = categories.filter((c) => c.kind === 'expense' && !c.archived).length
@@ -430,12 +414,12 @@ function AccountsPage({ data, onBack, go }: { data: AppData; onBack: () => void;
   const { accounts, currencies, mainCurrency } = data
   const active = accounts.filter((a) => !a.archived)
   const archived = accounts.filter((a) => a.archived)
-  const total = active.reduce((s, a) => s + (a.currency === mainCurrency.code ? balanceOf(a, data) : 0), 0)
+  const total = active.reduce((s, a) => s + (a.currency === mainCurrency.code ? accountBalance(a, data) : 0), 0)
   const hasForeign = active.some((a) => a.currency !== mainCurrency.code)
 
   const row = (a: Account) => {
     const cur = currencies.find((c) => c.code === a.currency) ?? mainCurrency
-    const b = balanceOf(a, data)
+    const b = accountBalance(a, data)
     return (
       <button key={a.id} className={`list-row menu-row${a.archived ? ' archived' : ''}`} onClick={() => go({ type: 'account', acc: a })}>
         <span className="menu-icon">

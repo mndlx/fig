@@ -64,3 +64,19 @@ export function goalBalances(transactions: Transaction[]): Map<string, number> {
   }
   return out
 }
+
+/** Saldo di un conto nella sua valuta: saldo iniziale, entrate, uscite e giroconti (i gomitoli non spostano soldi). */
+export function accountBalance(acc: Account, data: AppData): number {
+  const now = Date.now()
+  // Importo nella valuta del conto: uguale se la valuta coincide, il controvalore se il conto è nella valuta principale.
+  const inAccount = (tx: AppData['transactions'][number]) =>
+    tx.currency === acc.currency ? tx.amount : acc.currency === data.mainCurrency.code ? tx.mainAmount : tx.amount
+  let b = acc.initialBalance
+  for (const tx of data.transactions) {
+    // Solo movimenti già avvenuti: le scadenze in arrivo non sono ancora uscite dal conto.
+    if (tx.kind === 'save' || tx.kind === 'release' || tx.date > now) continue
+    if (tx.accountId === acc.id) b += tx.kind === 'income' || tx.kind === 'opening' ? inAccount(tx) : -inAccount(tx)
+    if (tx.toAccountId === acc.id) b += inAccount(tx)
+  }
+  return b
+}

@@ -939,43 +939,51 @@ select {
   color: var(--muted);
 }
 
+/* Dettagli del movimento: pulsanti con bordo e freccia, vanno a capo invece di scorrere. */
 .ctx-row {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  margin: 0 -16px;
-  padding: 0 16px 2px;
-  justify-content: safe center;
-}
-.ctx-row::-webkit-scrollbar {
-  display: none;
 }
 .ctx {
   --c: var(--ink);
-  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 32px;
-  padding: 0 12px;
+  min-height: 34px;
+  max-width: 100%;
+  padding: 0 10px 0 11px;
   border-radius: 999px;
-  font-size: 13px;
-  background: var(--key);
+  border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent);
+  background: var(--surface);
   color: var(--ink);
-  max-width: 200px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  transition: background 0.15s, border-color 0.15s;
+}
+.ctx:active {
+  background: var(--key);
 }
 .ctx svg {
   color: var(--muted);
   flex: none;
 }
+.ctx .ctx-caret {
+  margin-left: -1px;
+  opacity: 0.8;
+}
 .ctx.on {
-  box-shadow: inset 0 0 0 1.5px var(--ink);
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 0.5px var(--ink);
 }
 .ctx.tinted {
   background: color-mix(in srgb, var(--c) 18%, var(--surface));
+  border-color: color-mix(in srgb, var(--c) 55%, transparent);
 }
-.ctx-note {
+.ctx-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2590,4 +2598,151 @@ main > .seg,
   display: inline;
   padding: 0;
   font-size: 13px;
+}
+
+/* Card iniziale: saldi dei conti e avviso di conto in negativo */
+.hero-accounts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.hero-account {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(246, 236, 233, 0.1);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.hero-account > span:first-child {
+  opacity: 0.7;
+  font-size: 12px;
+}
+.hero-account .negative {
+  color: #ffb4a8;
+  font-weight: 600;
+}
+.hero-warn {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 180, 168, 0.16);
+  color: #ffd9d2;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.warn-note {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+/* Calcolatrice (stile standard di Windows) */
+.bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.amount-hero {
+  position: relative;
+}
+.calc-open {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+}
+.calc-backdrop {
+  z-index: 20;
+}
+.sheet.calc {
+  gap: 10px;
+  max-width: 420px;
+}
+.calc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.calc-title {
+  font-weight: 600;
+}
+.calc-display {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 4px 6px 8px;
+  min-width: 0;
+}
+.calc-expr {
+  font-size: 14px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.calc-value {
+  font-family: var(--serif);
+  font-size: 44px;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+.calc-keys {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+}
+.calc-key {
+  height: 52px;
+  border-radius: 10px;
+  background: var(--key);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: filter 0.12s, background 0.12s;
+}
+.calc-key.fn,
+.calc-key.op {
+  font-family: inherit;
+  font-size: 16px;
+  background: color-mix(in srgb, var(--key) 55%, var(--surface));
+}
+.calc-key.op {
+  font-size: 20px;
+}
+.calc-key.eq {
+  background: var(--fig);
+  color: var(--fig-ink);
+}
+.calc-key:not(.fn):not(.op):not(.eq) {
+  background: color-mix(in srgb, var(--key) 100%, var(--ink) 4%);
+}
+.calc-key:active {
+  filter: brightness(0.92);
+}
+.calc-key:disabled {
+  opacity: 0.35;
+}
+.save-btn:disabled {
+  opacity: 0.45;
 }

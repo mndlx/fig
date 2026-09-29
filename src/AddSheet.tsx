@@ -1,10 +1,11 @@
-import { IconArrowLeft, IconBackspace, IconCalendar, IconCheck, IconChevronDown, IconNote, IconPlus, IconRepeat, IconWallet, IconX } from '@tabler/icons-react'
+import { IconArrowLeft, IconBackspace, IconCalculator, IconCalendar, IconCheck, IconChevronDown, IconNote, IconPigMoney, IconPlus, IconRepeat, IconWallet, IconX } from '@tabler/icons-react'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CategoryIcon } from './catIcons'
-import { goalBalances, type AppData } from './data'
+import { accountBalance, goalBalances, type AppData } from './data'
 import { db, WOOL, type Frequency, type Kind, type Transaction } from './db'
 import { createSeries } from './recurring'
 import { YarnBall } from './Goals'
+import { Calculator } from './Calculator'
 import { builtinName, dateFmt, decimalSep, t, type Key } from './i18n'
 import { convertMinor, fetchRate, formatMoney, fromMinor, moneyParts, parseInput } from './money'
 import { rankCategories } from './suggest'
@@ -19,6 +20,8 @@ export interface SheetPreset {
   mode: Exclude<Mode, 'opening'>
   goalDir?: 'save' | 'release'
   goalId?: string
+  /** Importo già pronto (per esempio dalla calcolatrice), in unità intere della valuta. */
+  amount?: number
 }
 
 interface Props {
@@ -58,6 +61,30 @@ function modeOf(kind: Kind): Mode {
   return kind === 'save' || kind === 'release' ? 'goal' : kind
 }
 
+/** Scelte ricordate tra un inserimento e l'altro (solo su questo dispositivo). */
+const ACCOUNT_KEY = 'fig-last-account'
+const MODE_KEY = 'fig-last-mode'
+export const remember = {
+  get(key: string): string | null {
+    try {
+      return localStorage.getItem(key)
+    } catch {
+      return null
+    }
+  },
+  set(key: string, value: string) {
+    try {
+      localStorage.setItem(key, value)
+    } catch {
+      // Memoria non disponibile (navigazione privata): si riparte dai valori predefiniti.
+    }
+  },
+}
+function rememberedMode(): Mode {
+  const m = remember.get(MODE_KEY)
+  return m === 'income' || m === 'transfer' ? m : 'expense'
+}
+
 /**
  * Inserimento in due passi:
  * 1. "Per cosa?": categoria, gomitolo o conto di destinazione, a schermo pieno;
@@ -74,7 +101,7 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
     return a ? builtinName(a, 'acc') : '?'
   }
 
-  const [mode, setMode] = useState<Mode>(editing ? modeOf(editing.kind) : (preset?.mode ?? 'expense'))
+  const [mode, setMode] = useState<Mode>(editing ? modeOf(editing.kind) : (preset?.mode ?? rememberedMode()))
   const [goalDir, setGoalDir] = useState<'save' | 'release'>(editing?.kind === 'release' ? 'release' : (preset?.goalDir ?? 'save'))
   const [selected, setSelected] = useState<string | null>(() => {
     if (editing) {
@@ -90,12 +117,17 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
   const [payFrom, setPayFrom] = useState<string | null>(
     editing ? (editing.kind === 'expense' ? (editing.goalId ?? null) : null) : preset?.mode === 'expense' ? (preset.goalId ?? null) : null,
   )
-  const [accountId, setAccountId] = useState(editing?.accountId ?? activeAccounts[0]?.id ?? '')
+  const [accountId, setAccountId] = useState(
+    editing?.accountId ?? activeAccounts.find((a) => a.id === remember.get(ACCOUNT_KEY))?.id ?? activeAccounts[0]?.id ?? '',
+  )
   const [currencyCode, setCurrencyCode] = useState(editing?.currency ?? accounts.find((a) => a.id === accountId)?.currency ?? mainCurrency.code)
   const pickedCurrency = currencies.find((c) => c.code === currencyCode) ?? mainCurrency
   // I gomitoli sono sempre nella valuta principale.
   const currency = mode === 'goal' ? mainCurrency : pickedCurrency
-  const [input, setInput] = useState(editing ? inputFromMinor(editing.amount, currency.decimals) : '')
+  const [input, setInput] = useState(
+    editing ? inputFromMinor(editing.amount, currency.decimals) : preset?.amount ? String(Number(preset.amount.toFixed(currency.decimals))) : '',
+  )
+  const [calc, setCalc] = useState(false)
   const [negative, setNegative] = useState(editing?.kind === 'opening' && editing.amount < 0)
   const [date, setDate] = useState(toDateInput(editing?.date ?? Date.now()))
   const [note, setNote] = useState(editing?.note ?? '')
@@ -133,6 +165,7 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
 
   function switchMode(m: Exclude<Mode, 'opening'>) {
     setMode(m)
+    if (m !== 'goal') remember.set(MODE_KEY, m)
     setSelected(null)
     setError('')
     setPicker(null)
@@ -251,6 +284,16 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
 
   // ——— Importo ———
   const amountMinor = parseInput(input, currency.decimals)
+  // Guardia: il conto da cui escono i soldi andrebbe sotto zero? Di solito è un errore di contabilità.
+  const outAccount = kind === 'expense' || kind === 'transfer' ? accounts.find((a) => a.id === accountId) : undefined
+  const overdraft = (() => {
+    if (!outAccount || amountMinor <= 0 || outAccount.currency !== currency.code || new Date(date).getTime() > Date.now()) return null
+    let balance = accountBalance(outAccount, data)
+    // In modifica il movimento è già nel saldo: lo si toglie prima di rifare il conto.
+    if (editing && editing.accountId === outAccount.id && editing.date <= Date.now() && editing.currency === currency.code) balance += editing.amount
+    const after = balance - amountMinor
+    return after < 0 ? after : null
+  })()
   const shown = moneyParts(amountMinor, currency)
   const typed = (negative ? '−' : '') + (input ? input.replace('.', decimalSep()) : '0')
   const amountText = shown.symbolFirst ? `${shown.symbol}${shown.symbol.length > 1 ? ' ' : ''}${typed}` : `${typed} ${shown.symbol}`
@@ -271,7 +314,7 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
   const todayKey = toDateInput(Date.now())
   const yesterdayKey = toDateInput(Date.now() - 86_400_000)
   const dateLabel =
-    date === todayKey ? t('common.today') : date === yesterdayKey ? t('common.yesterday') : dateFmt({ day: 'numeric', month: 'short' }).format(new Date(date))
+    (date === todayKey ? t('common.today') : date === yesterdayKey ? t('common.yesterday') : dateFmt({ day: 'numeric', month: 'short' }).format(new Date(date))).replace(/^./, (ch) => ch.toUpperCase())
   const payFromGoal = activeGoals.find((g) => g.id === payFrom)
   const accent = chosen?.color ?? 'var(--fig)'
 
@@ -446,7 +489,7 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
                     {picker === 'account' && (
                       <div className="options">
                         {activeAccounts.map((a) => (
-                          <button key={a.id} className={a.id === accountId ? 'on' : ''} onClick={() => (setAccountId(a.id), setCurrencyCode(a.currency), setPicker(null))}>
+                          <button key={a.id} className={a.id === accountId ? 'on' : ''} onClick={() => (setAccountId(a.id), remember.set(ACCOUNT_KEY, a.id), setCurrencyCode(a.currency), setPicker(null))}>
                             {builtinName(a, 'acc')}
                           </button>
                         ))}
@@ -486,6 +529,9 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
             )}
 
             <div className="amount-hero">
+              <button className="icon-btn calc-open" aria-label={t('calc.title')} onClick={() => setCalc(true)}>
+                <IconCalculator size={20} />
+              </button>
               <span className={`amount-big${input ? '' : ' placeholder'}`}>{amountText}</span>
               {foreign && Number(rate) > 0 && amountMinor > 0 && (
                 <span className="amount-converted">≈ {formatMoney(convertMinor(amountMinor, currency, mainCurrency, Number(rate)), mainCurrency)}</span>
@@ -496,11 +542,13 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
               <button className={`ctx${picker === 'date' ? ' on' : ''}`} onClick={() => setPicker(picker === 'date' ? null : 'date')}>
                 <IconCalendar size={15} />
                 {dateLabel}
+                <IconChevronDown size={14} className="ctx-caret" />
               </button>
               {mode !== 'goal' && mode !== 'opening' && mode !== 'transfer' && (
                 <button className={`ctx${picker === 'account' ? ' on' : ''}`} onClick={() => setPicker(picker === 'account' ? null : 'account')}>
                   <IconWallet size={15} />
                   {accName(accountId)}
+                  <IconChevronDown size={14} className="ctx-caret" />
                 </button>
               )}
               {mode === 'expense' && activeGoals.length > 0 && (
@@ -509,13 +557,18 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
                   style={payFromGoal ? ({ '--c': payFromGoal.color } as CSSProperties) : undefined}
                   onClick={() => setPicker(picker === 'payFrom' ? null : 'payFrom')}
                 >
-                  {t('add.payFrom')}: {payFromGoal ? payFromGoal.name : t('add.payAvailable')}
+                  <IconPigMoney size={15} />
+                  <span className="ctx-text">
+                    {t('add.payFrom')}: {payFromGoal ? payFromGoal.name : t('add.payAvailable')}
+                  </span>
+                  <IconChevronDown size={14} className="ctx-caret" />
                 </button>
               )}
               {!editing && (mode === 'expense' || mode === 'income' || (mode === 'goal' && goalDir === 'save')) && (
                 <button className={`ctx${picker === 'repeat' ? ' on' : ''}${repeat !== 'none' ? ' tinted' : ''}`} onClick={() => setPicker(picker === 'repeat' ? null : 'repeat')}>
                   <IconRepeat size={15} />
                   {repeat === 'none' ? t('add.repeat') : t(`repeat.${repeat}` as Key)}
+                  <IconChevronDown size={14} className="ctx-caret" />
                 </button>
               )}
               {mode === 'opening' && (
@@ -524,13 +577,13 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
                 </button>
               )}
               <button className={`ctx${picker === 'note' ? ' on' : ''}`} onClick={() => setPicker(picker === 'note' ? null : 'note')}>
-                <IconNote size={15} />
-                {note ? <span className="ctx-note">{note}</span> : t('add.addNote')}
+                {note ? <IconNote size={15} /> : <IconPlus size={15} />}
+                {note ? <span className="ctx-text">{note}</span> : t('add.addNote')}
               </button>
               {mode !== 'goal' && mode !== 'opening' && currencies.length > 1 && (
                 <button className={`ctx${picker === 'currency' ? ' on' : ''}`} onClick={() => setPicker(picker === 'currency' ? null : 'currency')}>
                   {currency.code}
-                  <IconChevronDown size={13} />
+                  <IconChevronDown size={14} className="ctx-caret" />
                 </button>
               )}
             </div>
@@ -573,7 +626,7 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
             {picker === 'account' && (
               <div className="options">
                 {activeAccounts.map((a) => (
-                  <button key={a.id} className={a.id === accountId ? 'on' : ''} onClick={() => (setAccountId(a.id), setCurrencyCode(a.currency), setPicker(null))}>
+                  <button key={a.id} className={a.id === accountId ? 'on' : ''} onClick={() => (setAccountId(a.id), remember.set(ACCOUNT_KEY, a.id), setCurrencyCode(a.currency), setPicker(null))}>
                     {builtinName(a, 'acc')}
                     <span className="muted small"> {a.currency}</span>
                   </button>
@@ -641,6 +694,11 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
               ))}
             </div>
 
+            {overdraft !== null && outAccount && (
+              <p className="warn-note" role="status">
+                {t('add.overdraft', { name: builtinName(outAccount, 'acc'), amount: formatMoney(overdraft, currency) })}
+              </p>
+            )}
             {error && <p className="error">{error}</p>}
 
             <button className="save-btn" onClick={save}>
@@ -648,6 +706,17 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
                 ? t('add.saveBtn', { amount: formatMoney(amountMinor * (negative ? -1 : 1), currency) })
                 : t('add.enterAmount')}
             </button>
+
+            {calc && (
+              <Calculator
+                initial={amountMinor > 0 ? fromMinor(amountMinor, currency.decimals) : undefined}
+                onClose={() => setCalc(false)}
+                onUse={(v) => {
+                  setInput(String(Number(Math.abs(v).toFixed(currency.decimals))))
+                  setCalc(false)
+                }}
+              />
+            )}
 
             {editing && (
               <button className={`danger-link${confirmDelete ? ' armed' : ''}`} onClick={remove}>

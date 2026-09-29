@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AddSheet, type SheetPreset } from './AddSheet'
-import { goalBalances, signedMain, useAppData, type AppData } from './data'
+import { AddSheet, remember, type SheetPreset } from './AddSheet'
+import { Calculator } from './Calculator'
+import { IconCalculator } from '@tabler/icons-react'
+import { accountBalance, goalBalances, signedMain, useAppData, type AppData } from './data'
 import { db, type Currency, type Goal, type Transaction } from './db'
 import { GoalDetail, GoalForm, Goals, type GoalTemplate } from './Goals'
 import { builtinName, dateFmt, getLang, readLangSetting, resolveLang, setLang, t, writeLangSetting, type LangSetting } from './i18n'
@@ -181,8 +183,16 @@ export default function App({ offline = false }: { offline?: boolean }) {
     document.documentElement.lang = lang
   }, [lang])
 
-  const [tab, setTab] = useState<Tab>('filo')
+  const [tab, setTabState] = useState<Tab>(() => {
+    const saved = remember.get('fig-tab')
+    return saved === 'trama' || saved === 'goals' ? saved : 'filo'
+  })
+  const setTab = (next: Tab) => {
+    setTabState(next)
+    if (next !== 'settings') remember.set('fig-tab', next)
+  }
   const [monthOffset, setMonthOffset] = useState(0)
+  const [calcOpen, setCalcOpen] = useState(false)
   const [sheet, setSheet] = useState<{ editing: Transaction | null; preset?: SheetPreset } | null>(null)
   const [goalForm, setGoalForm] = useState<{ goal: Goal | null; returnTo: Tab; template?: GoalTemplate } | null>(null)
   const [goalDetail, setGoalDetail] = useState<string | null>(null)
@@ -198,6 +208,13 @@ export default function App({ offline = false }: { offline?: boolean }) {
     const balances = goalBalances(data.transactions)
     return data.goals.filter((g) => !g.archived).reduce((s, g) => s + (balances.get(g.id) ?? 0), 0)
   }, [data])
+
+  // Saldi dei conti per la card iniziale: un conto in negativo di solito vuol dire un movimento sbagliato o mancante.
+  const heroAccounts = useMemo(
+    () => (data ? data.accounts.filter((a) => !a.archived).map((account) => ({ account, balance: accountBalance(account, data) })) : []),
+    [data],
+  )
+  const overdrawn = heroAccounts.filter((a) => a.balance < 0)
 
   useEffect(() => () => window.clearTimeout(toastTimer.current), [])
 
@@ -378,10 +395,24 @@ export default function App({ offline = false }: { offline?: boolean }) {
           fig
         </span>
         {tab !== 'goals' ? monthNav : <span />}
-        <button className="icon-btn" aria-label={t('nav.settings')} onClick={() => setTab('settings')}>
-          <IconGear />
-        </button>
+        <span className="bar-actions">
+          <button className="icon-btn" aria-label={t('calc.title')} onClick={() => setCalcOpen(true)}>
+            <IconCalculator size={22} stroke={1.6} />
+          </button>
+          <button className="icon-btn" aria-label={t('nav.settings')} onClick={() => setTab('settings')}>
+            <IconGear />
+          </button>
+        </span>
       </header>
+      {calcOpen && (
+        <Calculator
+          onClose={() => setCalcOpen(false)}
+          onUse={(amount) => {
+            setCalcOpen(false)
+            setSheet({ editing: null, preset: { mode: 'expense', amount } })
+          }}
+        />
+      )}
 
       {tab === 'filo' && (
         <main>
@@ -437,6 +468,27 @@ export default function App({ offline = false }: { offline?: boolean }) {
                 </span>
               )}
             </div>
+
+            {heroAccounts.length > 0 && (
+              <div className="hero-accounts">
+                {heroAccounts.map(({ account, balance }) => (
+                  <span key={account.id} className="hero-account">
+                    <span>{builtinName(account, 'acc')}</span>
+                    <span className={balance < 0 ? 'negative' : undefined}>
+                      {formatMoney(balance, data.currencies.find((c) => c.code === account.currency) ?? mainCurrency)}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
+            {view.isCurrent && overdrawn.length > 0 && (
+              <p className="hero-warn" role="alert">
+                {t(overdrawn.length === 1 ? 'hero.overdrawn' : 'hero.overdrawnMany', {
+                  name: builtinName(overdrawn[0].account, 'acc'),
+                  n: overdrawn.length,
+                })}
+              </p>
+            )}
           </section>
 
           <ThreadView
