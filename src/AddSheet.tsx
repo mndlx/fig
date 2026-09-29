@@ -36,14 +36,21 @@ interface Props {
   onAlign?: (accountId: string) => void
 }
 
-const MODES: Exclude<Mode, 'opening'>[] = ['expense', 'income', 'goal', 'transfer']
+/**
+ * Due schede: "Movimento" (uscita o entrata, con un interruttore) e "Sposta" (Da → A).
+ * In "Sposta" il tipo si ricava dagli estremi: Disponibile → gomitolo = metti da parte,
+ * gomitolo → Disponibile = riprendi, conto → conto = giroconto.
+ */
+type Tab = 'move' | 'shift'
+const TABS: Tab[] = ['move', 'shift']
+const tabOf = (m: Mode): Tab => (m === 'goal' || m === 'transfer' ? 'shift' : 'move')
 const QUICK_ICONS = ['dots', 'cart', 'kitchen', 'coffee', 'car', 'plane', 'gym', 'pet', 'book', 'movie', 'gift', 'health', 'phone', 'bag']
 
 const PICK_TITLE: Record<Exclude<Mode, 'opening'>, Key> = {
   expense: 'add.q.expense',
   income: 'add.q.income',
-  goal: 'add.q.goal',
-  transfer: 'add.q.transfer',
+  goal: 'add.q.shift',
+  transfer: 'add.q.shift',
 }
 
 function toDateInput(ts: number): string {
@@ -82,9 +89,12 @@ export const remember = {
     }
   },
 }
-function rememberedMode(): Mode {
+/** Ultima scheda usata: uscita, entrata o "sposta" (in quel caso il tipo dipende da cosa c'è). */
+function rememberedMode(hasGoals: boolean): Mode {
   const m = remember.get(MODE_KEY)
-  return m === 'income' || m === 'transfer' ? m : 'expense'
+  if (m === 'income') return 'income'
+  if (m === 'shift' || m === 'transfer') return hasGoals ? 'goal' : 'transfer'
+  return 'expense'
 }
 
 /**
@@ -103,7 +113,7 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
     return a ? builtinName(a, 'acc') : '?'
   }
 
-  const [mode, setMode] = useState<Mode>(editing ? modeOf(editing.kind) : (preset?.mode ?? rememberedMode()))
+  const [mode, setMode] = useState<Mode>(editing ? modeOf(editing.kind) : (preset?.mode ?? rememberedMode(activeGoals.length > 0)))
   const [goalDir, setGoalDir] = useState<'save' | 'release'>(editing?.kind === 'release' ? 'release' : (preset?.goalDir ?? 'save'))
   const [selected, setSelected] = useState<string | null>(() => {
     if (editing) {
@@ -122,6 +132,12 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
   const [accountId, setAccountId] = useState(
     editing?.accountId ?? activeAccounts.find((a) => a.id === remember.get(ACCOUNT_KEY))?.id ?? activeAccounts[0]?.id ?? '',
   )
+  // Estremo di partenza in "Sposta": 'avail' (Disponibile), 'g:<gomitolo>' o 'a:<conto>'.
+  const [from, setFrom] = useState<string>(() => {
+    if (editing?.kind === 'release' || (preset?.mode === 'goal' && preset.goalDir === 'release' && preset.goalId)) return `g:${editing?.goalId ?? preset?.goalId}`
+    if (editing?.kind === 'transfer' || preset?.mode === 'transfer' || mode === 'transfer') return `a:${accountId}`
+    return 'avail'
+  })
   const [currencyCode, setCurrencyCode] = useState(editing?.currency ?? accounts.find((a) => a.id === accountId)?.currency ?? mainCurrency.code)
   const pickedCurrency = currencies.find((c) => c.code === currencyCode) ?? mainCurrency
   // I gomitoli sono sempre nella valuta principale.
@@ -165,12 +181,43 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
   const suggested = fromHabits ? ranked.slice(0, 4) : []
   const rest = fromHabits ? ranked.slice(4) : ranked
 
-  function switchMode(m: Exclude<Mode, 'opening'>) {
-    setMode(m)
-    if (m !== 'goal') remember.set(MODE_KEY, m)
+  const tab = tabOf(mode)
+
+  function reset() {
     setSelected(null)
     setError('')
     setPicker(null)
+  }
+
+  /** Uscita o entrata dentro la scheda "Movimento". */
+  function switchMode(m: 'expense' | 'income') {
+    setMode(m)
+    remember.set(MODE_KEY, m)
+    reset()
+  }
+
+  function switchTab(next: Tab) {
+    if (next === tab) return
+    if (next === 'move') return switchMode('expense')
+    remember.set(MODE_KEY, 'shift')
+    pickFrom(activeGoals.length > 0 ? 'avail' : `a:${accountId}`)
+  }
+
+  /** Estremo di partenza in "Sposta": decide il tipo di movimento. */
+  function pickFrom(f: string) {
+    setFrom(f)
+    reset()
+    if (f.startsWith('a:')) {
+      const id = f.slice(2)
+      const acc = accounts.find((a) => a.id === id)
+      setAccountId(id)
+      remember.set(ACCOUNT_KEY, id)
+      if (acc) setCurrencyCode(acc.currency)
+      setMode('transfer')
+    } else {
+      setMode('goal')
+      setGoalDir(f === 'avail' ? 'save' : 'release')
+    }
   }
 
   /** Scelta fatta: si passa all'importo. */
@@ -320,7 +367,12 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
     if (c) chosen = { label: builtinName(c, 'cat'), color: c.color, icon: <CategoryIcon name={c.icon} size={18} /> }
   } else if (selected && mode === 'goal') {
     const g = goals.find((x) => x.id === selected)
-    if (g) chosen = { label: `${goalDir === 'save' ? t('add.putAside') : t('add.takeBack')} · ${g.name}`, color: g.color, icon: <YarnBall color={g.color} progress={0.6} size={22} /> }
+    if (g)
+      chosen = {
+        label: goalDir === 'save' ? `${t('add.payAvailable')} → ${g.name}` : `${g.name} → ${t('add.payAvailable')}`,
+        color: g.color,
+        icon: <YarnBall color={g.color} progress={0.6} size={22} />,
+      }
   } else if (selected && mode === 'transfer') {
     chosen = { label: `${accName(accountId)} → ${accName(selected)}`, color: 'var(--thread)', icon: <IconWallet size={18} /> }
   }
@@ -383,9 +435,9 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
           <>
             {step === 'pick' && (
               <div className="mode-tabs" role="tablist">
-                {MODES.map((m) => (
-                  <button key={m} role="tab" aria-selected={mode === m} className={mode === m ? 'on' : ''} onClick={() => switchMode(m)}>
-                    {t(`mode.${m}` as Key)}
+                {TABS.map((x) => (
+                  <button key={x} role="tab" aria-selected={tab === x} className={tab === x ? 'on' : ''} onClick={() => switchTab(x)}>
+                    {t(`mode.${x}` as Key)}
                   </button>
                 ))}
               </div>
@@ -410,7 +462,18 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
 
         {step === 'pick' && mode !== 'opening' && (
           <div className="step-body step-pick" key={`pick-${mode}`}>
-            <p className="step-title">{t(PICK_TITLE[mode])}</p>
+            <div className="pick-head">
+              <p className="step-title">{t(PICK_TITLE[mode])}</p>
+              {tab === 'move' && (
+                <div className="dir-toggle sign-toggle" role="radiogroup" aria-label={t('mode.move')}>
+                  {(['expense', 'income'] as const).map((m) => (
+                    <button key={m} role="radio" aria-checked={mode === m} className={`${mode === m ? 'on' : ''} ${m}`} onClick={() => mode !== m && switchMode(m)}>
+                      {m === 'expense' ? '−' : '+'} {t(`mode.${m}` as Key)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {picker === 'newCat' ? (
               <div className="new-cat">
@@ -461,68 +524,84 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
                   </>
                 )}
 
-                {mode === 'goal' && (
+                {tab === 'shift' && (
                   <>
-                    <div className="dir-toggle" role="tablist">
-                      {(['save', 'release'] as const).map((d) => (
-                        <button key={d} role="tab" aria-selected={goalDir === d} className={goalDir === d ? 'on' : ''} onClick={() => setGoalDir(d)}>
-                          {d === 'save' ? t('add.putAside') : t('add.takeBack')}
+                    <p className="pick-label">{t('add.from')}</p>
+                    <div className="ctx-row from-row" role="radiogroup" aria-label={t('add.from')}>
+                      {activeGoals.length > 0 && (
+                        <button role="radio" aria-checked={from === 'avail'} className={`ctx${from === 'avail' ? ' on' : ''}`} onClick={() => pickFrom('avail')}>
+                          <IconPigMoney size={15} />
+                          {t('add.payAvailable')}
+                        </button>
+                      )}
+                      {activeGoals.map((g) => (
+                        <button key={g.id} role="radio" aria-checked={from === `g:${g.id}`} className={`ctx${from === `g:${g.id}` ? ' on' : ''}`} onClick={() => pickFrom(`g:${g.id}`)}>
+                          <span className="legend-dot" style={{ background: g.color }} />
+                          <span className="ctx-text">{g.name}</span>
                         </button>
                       ))}
-                    </div>
-                    {activeGoals.length === 0 ? (
-                      <div className="goal-empty-mini">
-                        <YarnBall color="#2F6F73" progress={0.35} size={64} />
-                        <p className="muted small">{t('add.noGoals')}</p>
-                        <button className="primary" onClick={onNewGoal}>
-                          {t('add.createGoal')}
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="tiles">
-                        {activeGoals.map((g) => {
-                          const bal = balances.get(g.id) ?? 0
-                          return tile(g.id, g.name, g.color, <YarnBall color={g.color} progress={g.target > 0 ? bal / g.target : bal > 0 ? 0.5 : 0} size={50} />, formatMoney(bal, mainCurrency))
-                        })}
-                        <button className="tile" onClick={onNewGoal}>
-                          <span className="tile-icon ghost">
-                            <IconPlus size={22} />
-                          </span>
-                          <span className="tile-name">{t('add.newCategory')}</span>
-                        </button>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {mode === 'transfer' && (
-                  <>
-                    <p className="pick-label">
-                      {t('add.from')}: <button className="link-btn inline" onClick={() => setPicker(picker === 'account' ? null : 'account')}>{accName(accountId)} ▾</button>
-                    </p>
-                    {picker === 'account' && (
-                      <div className="options">
-                        {activeAccounts.map((a) => (
-                          <button key={a.id} className={a.id === accountId ? 'on' : ''} onClick={() => (setAccountId(a.id), remember.set(ACCOUNT_KEY, a.id), setCurrencyCode(a.currency), setPicker(null))}>
+                      {activeAccounts.length > 1 &&
+                        activeAccounts.map((a) => (
+                          <button key={a.id} role="radio" aria-checked={from === `a:${a.id}`} className={`ctx${from === `a:${a.id}` ? ' on' : ''}`} onClick={() => pickFrom(`a:${a.id}`)}>
+                            <IconWallet size={15} />
                             {builtinName(a, 'acc')}
                           </button>
                         ))}
+                    </div>
+
+                    <p className="pick-label">{t('add.to')}</p>
+                    {from === 'avail' &&
+                      (activeGoals.length === 0 ? (
+                        <div className="goal-empty-mini">
+                          <YarnBall color="#2F6F73" progress={0.35} size={64} />
+                          <p className="muted small">{t('add.noGoals')}</p>
+                          <button className="primary" onClick={onNewGoal}>
+                            {t('add.createGoal')}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="tiles">
+                          {activeGoals.map((g) => {
+                            const bal = balances.get(g.id) ?? 0
+                            return tile(g.id, g.name, g.color, <YarnBall color={g.color} progress={g.target > 0 ? bal / g.target : bal > 0 ? 0.5 : 0} size={50} />, formatMoney(bal, mainCurrency))
+                          })}
+                          <button className="tile" onClick={onNewGoal}>
+                            <span className="tile-icon ghost">
+                              <IconPlus size={22} />
+                            </span>
+                            <span className="tile-name">{t('add.newCategory')}</span>
+                          </button>
+                        </div>
+                      ))}
+                    {from.startsWith('g:') && (
+                      <div className="tiles">
+                        {tile(
+                          from.slice(2),
+                          t('add.payAvailable'),
+                          'var(--fig)',
+                          <span className="tile-icon">
+                            <IconPigMoney size={22} />
+                          </span>,
+                          t('add.inGoal', { amount: formatMoney(balances.get(from.slice(2)) ?? 0, mainCurrency) }),
+                        )}
                       </div>
                     )}
-                    <div className="tiles">
-                      {activeAccounts
-                        .filter((a) => a.id !== accountId)
-                        .map((a) =>
-                          tile(
-                            a.id,
-                            builtinName(a, 'acc'),
-                            'var(--thread)',
-                            <span className="tile-icon">
-                              <IconWallet size={22} />
-                            </span>,
-                          ),
-                        )}
-                    </div>
+                    {from.startsWith('a:') && (
+                      <div className="tiles">
+                        {activeAccounts
+                          .filter((a) => a.id !== accountId)
+                          .map((a) =>
+                            tile(
+                              a.id,
+                              builtinName(a, 'acc'),
+                              'var(--thread)',
+                              <span className="tile-icon">
+                                <IconWallet size={22} />
+                              </span>,
+                            ),
+                          )}
+                      </div>
+                    )}
                   </>
                 )}
               </div>

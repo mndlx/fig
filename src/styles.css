@@ -2889,3 +2889,46 @@ button.hero-account:active {
 .align-accounts {
   justify-content: flex-start;
 }
+
+/* Inserimento: due schede, interruttore uscita/entrata e riga "Da" */
+.pick-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.pick-head .step-title {
+  min-width: 0;
+}
+.sign-toggle {
+  flex: none;
+  grid-template-columns: auto auto;
+}
+.sign-toggle button {
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+.sign-toggle button.on.expense {
+  color: var(--danger);
+}
+.sign-toggle button.on.income {
+  color: var(--positive);
+}
+.from-row {
+  justify-content: flex-start;
+}
+.from-row .ctx {
+  max-width: 180px;
+}
+
+/* Filo: icona della categoria accanto al titolo */
+.row-body .tx-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  margin-right: -2px;
+}
+.row-body .tx-icon + .tx-text {
+  flex: 1;
+  min-width: 0;
+}

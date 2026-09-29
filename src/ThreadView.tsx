@@ -172,6 +172,15 @@ export function ThreadView(props: Props) {
     })
   }
 
+  /** Icona di un movimento: la categoria, oppure il tipo per gomitoli, giroconti e saldi iniziali. */
+  function iconOf(tx: Transaction, catIcon?: string): string {
+    if (catIcon) return catIcon
+    if (tx.kind === 'save' || tx.kind === 'release') return 'piggy'
+    if (tx.kind === 'transfer') return 'wallet'
+    if (tx.kind === 'opening') return 'bank'
+    return 'dots'
+  }
+
   /** Titolo, dettagli e importo di un movimento, come si leggono nel filo e nella ricerca. */
   function describe(tx: Transaction) {
     const cat = tx.categoryId ? catById.get(tx.categoryId) : undefined
@@ -284,7 +293,7 @@ export function ThreadView(props: Props) {
             return (
               <button key={tx.id} className="list-row search-row" onClick={() => props.onOpen(tx)}>
                 <span className="row-icon" style={{ '--c': d.goal?.color ?? d.cat?.color ?? 'var(--muted)' } as CSSProperties}>
-                  <CategoryIcon name={d.cat?.icon ?? (tx.kind === 'save' || tx.kind === 'release' ? 'piggy' : 'dots')} size={16} />
+                  <CategoryIcon name={iconOf(tx, d.cat?.icon)} size={16} />
                 </span>
                 <span className="grow">
                   {d.title}
@@ -435,6 +444,9 @@ export function ThreadView(props: Props) {
               )}
             </svg>
             <div className="row-body">
+              <span className="row-icon tx-icon" aria-hidden="true" style={{ '--c': d.goal && tx.kind !== 'expense' ? d.goal.color : (d.cat?.color ?? 'var(--muted)') } as CSSProperties}>
+                <CategoryIcon name={iconOf(tx, d.cat?.icon)} size={16} />
+              </span>
               <span className="tx-text">
                 <span className="tx-title">{d.title}</span>
                 <span className="tx-meta">{d.metaText}</span>
