@@ -2625,18 +2625,21 @@ main > .seg,
   color: #ffb4a8;
   font-weight: 600;
 }
-.hero-warn {
-  margin: 10px 0 0;
-  padding: 8px 10px;
+.hero .hero-warn {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 16px 0 2px;
+  padding: 10px 12px;
   border-radius: 10px;
   background: rgba(255, 180, 168, 0.16);
   color: #ffd9d2;
   font-size: 13px;
   line-height: 1.35;
 }
-.warn-note {
-  margin: 0;
-  padding: 8px 12px;
+.step-amount .warn-note {
+  margin: 6px 0;
+  padding: 10px 12px;
   border-radius: 12px;
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   color: var(--danger);
@@ -2745,4 +2748,24 @@ main > .seg,
 }
 .save-btn:disabled {
   opacity: 0.45;
+}
+
+/* "Usa tutto il rimanente" sotto l'importo */
+.use-all {
+  margin-top: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px dashed color-mix(in srgb, var(--ink) 30%, transparent);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.use-all:active {
+  background: var(--key);
+}
+
+.hero-warn svg {
+  flex: none;
+  margin-top: 1px;
 }

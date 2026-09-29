@@ -1,7 +1,7 @@
 import { IconArrowLeft, IconBackspace, IconCalculator, IconCalendar, IconCheck, IconChevronDown, IconNote, IconPigMoney, IconPlus, IconRepeat, IconWallet, IconX } from '@tabler/icons-react'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CategoryIcon } from './catIcons'
-import { accountBalance, goalBalances, type AppData } from './data'
+import { accountBalance, goalBalances, goalDelta, type AppData } from './data'
 import { db, WOOL, type Frequency, type Kind, type Transaction } from './db'
 import { createSeries } from './recurring'
 import { YarnBall } from './Goals'
@@ -286,14 +286,27 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
   const amountMinor = parseInput(input, currency.decimals)
   // Guardia: il conto da cui escono i soldi andrebbe sotto zero? Di solito è un errore di contabilità.
   const outAccount = kind === 'expense' || kind === 'transfer' ? accounts.find((a) => a.id === accountId) : undefined
-  const overdraft = (() => {
-    if (!outAccount || amountMinor <= 0 || outAccount.currency !== currency.code || new Date(date).getTime() > Date.now()) return null
+  // Saldo del conto prima di questo movimento (in modifica il movimento è già nel saldo: lo si toglie).
+  const accountLeft = (() => {
+    if (!outAccount || outAccount.currency !== currency.code) return null
     let balance = accountBalance(outAccount, data)
-    // In modifica il movimento è già nel saldo: lo si toglie prima di rifare il conto.
     if (editing && editing.accountId === outAccount.id && editing.date <= Date.now() && editing.currency === currency.code) balance += editing.amount
-    const after = balance - amountMinor
-    return after < 0 ? after : null
+    return balance
   })()
+  const overdraft =
+    accountLeft !== null && amountMinor > 0 && new Date(date).getTime() <= Date.now() && accountLeft - amountMinor < 0 ? accountLeft - amountMinor : null
+  // Quanto resta in un gomitolo, senza contare il movimento che si sta modificando.
+  const goalLeft = (id: string) => (balances.get(id) ?? 0) - (editing ? goalDelta(editing, id) : 0)
+  // "Usa tutto": il gomitolo da cui si paga o si riprende, altrimenti il conto da cui escono i soldi.
+  const useAll = (() => {
+    if (kind === 'expense' && payFrom) return currency.code === mainCurrency.code ? goalLeft(payFrom) : null
+    if (kind === 'release' && selected) return goalLeft(selected)
+    return accountLeft
+  })()
+  const payFromGoal = activeGoals.find((g) => g.id === payFrom)
+  // Guardia sui gomitoli: non si può spendere o riprendere più di quanto c'è dentro.
+  const sourceGoal = kind === 'expense' && payFrom ? payFromGoal : kind === 'release' ? activeGoals.find((g) => g.id === selected) : undefined
+  const goalShort = sourceGoal && useAll !== null && amountMinor > Math.max(0, useAll) ? { goal: sourceGoal, left: Math.max(0, useAll) } : null
   const shown = moneyParts(amountMinor, currency)
   const typed = (negative ? '−' : '') + (input ? input.replace('.', decimalSep()) : '0')
   const amountText = shown.symbolFirst ? `${shown.symbol}${shown.symbol.length > 1 ? ' ' : ''}${typed}` : `${typed} ${shown.symbol}`
@@ -315,7 +328,6 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
   const yesterdayKey = toDateInput(Date.now() - 86_400_000)
   const dateLabel =
     (date === todayKey ? t('common.today') : date === yesterdayKey ? t('common.yesterday') : dateFmt({ day: 'numeric', month: 'short' }).format(new Date(date))).replace(/^./, (ch) => ch.toUpperCase())
-  const payFromGoal = activeGoals.find((g) => g.id === payFrom)
   const accent = chosen?.color ?? 'var(--fig)'
 
   const tile = (id: string, label: string, color: string, icon: ReactNode, sub?: string) => (
@@ -536,6 +548,11 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
               {foreign && Number(rate) > 0 && amountMinor > 0 && (
                 <span className="amount-converted">≈ {formatMoney(convertMinor(amountMinor, currency, mainCurrency, Number(rate)), mainCurrency)}</span>
               )}
+              {useAll !== null && useAll > 0 && useAll !== amountMinor && (
+                <button className="use-all" onClick={() => (setInput(inputFromMinor(useAll, currency.decimals)), setError(''))}>
+                  {t('add.useAll', { amount: formatMoney(useAll, currency) })}
+                </button>
+              )}
             </div>
 
             <div className="ctx-row">
@@ -694,7 +711,12 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
               ))}
             </div>
 
-            {overdraft !== null && outAccount && (
+            {goalShort && (
+              <p className="warn-note" role="status">
+                {t('add.goalShort', { name: goalShort.goal.name, amount: formatMoney(goalShort.left, mainCurrency) })}
+              </p>
+            )}
+            {!goalShort && overdraft !== null && outAccount && (
               <p className="warn-note" role="status">
                 {t('add.overdraft', { name: builtinName(outAccount, 'acc'), amount: formatMoney(overdraft, currency) })}
               </p>

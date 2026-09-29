@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AddSheet, remember, type SheetPreset } from './AddSheet'
 import { Calculator } from './Calculator'
-import { IconCalculator } from '@tabler/icons-react'
+import { IconAlertTriangle, IconCalculator } from '@tabler/icons-react'
 import { accountBalance, goalBalances, signedMain, useAppData, type AppData } from './data'
 import { db, type Currency, type Goal, type Transaction } from './db'
 import { GoalDetail, GoalForm, Goals, type GoalTemplate } from './Goals'
@@ -483,10 +483,13 @@ export default function App({ offline = false }: { offline?: boolean }) {
             )}
             {view.isCurrent && overdrawn.length > 0 && (
               <p className="hero-warn" role="alert">
+                <IconAlertTriangle size={18} stroke={1.8} />
+                <span>
                 {t(overdrawn.length === 1 ? 'hero.overdrawn' : 'hero.overdrawnMany', {
                   name: builtinName(overdrawn[0].account, 'acc'),
                   n: overdrawn.length,
                 })}
+                </span>
               </p>
             )}
           </section>
