@@ -1,12 +1,29 @@
 {
-  "name": "FIG",
+  "id": "/",
+  "name": "FIG · budget personale",
   "short_name": "FIG",
-  "description": "Entrate e uscite, a modo tuo.",
-  "start_url": "/",
+  "description": "Entrate, uscite e obiettivi che maturano come fichi. Il tuo budget personale, anche senza account.",
+  "lang": "it",
+  "dir": "ltr",
+  "start_url": "/?source=pwa",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#F4EFE6",
   "theme_color": "#F4EFE6",
+  "categories": ["finance", "productivity"],
   "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
     { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nuovo movimento",
+      "short_name": "Nuovo",
+      "url": "/?add=1",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
   ]
 }

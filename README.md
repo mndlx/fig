@@ -91,6 +91,10 @@ In Keycloak, client `fig` (Client authentication: On):
 - Valid redirect URIs: `https://fig.vlabstudio.net/auth/callback`, `http://localhost:5174/auth/callback`
 - Valid post logout redirect URIs: `https://fig.vlabstudio.net/`, `http://localhost:5174/`
 
+### Play Store
+
+FIG si pubblica sul Play Store come Trusted Web Activity: guida, testi della scheda, grafiche e screenshot in [docs/play-store](docs/play-store/README.md). Il server espone `/.well-known/assetlinks.json` quando in `.env` ci sono `ANDROID_PACKAGE` e `ANDROID_CERT_SHA256`.
+
 ### Backup
 
 `scripts/backup.sh` gira sulla VPS ogni notte alle 03:30 (crontab di root, log in `/var/log/fig-backup.log`). Fa una copia coerente del database con l'API di backup di SQLite, ne controlla l'integrità e la salva compressa in `/opt/fig-backups` (fuori dal volume Docker), tenendo le ultime 14.

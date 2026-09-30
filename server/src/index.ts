@@ -16,6 +16,16 @@ app.use(express.json({ limit: '20mb' }))
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, auth: config.authDisabled ? 'disabled' : config.issuer && config.clientSecret ? 'oidc' : 'not_configured' })
 })
+// Digital Asset Links: dice ad Android che l'app FIG del Play Store può aprire questo sito a schermo intero.
+app.get('/.well-known/assetlinks.json', (_req, res) => {
+  if (!config.androidPackage || config.androidCertSha256.length === 0) return res.status(404).json([])
+  res.json([
+    {
+      relation: ['delegate_permission/common.handle_all_urls'],
+      target: { namespace: 'android_app', package_name: config.androidPackage, sha256_cert_fingerprints: config.androidCertSha256 },
+    },
+  ])
+})
 app.use('/auth', authRouter(db))
 app.use('/api', requireAuth(db), syncRouter(db), accountRouter(db))
 app.use('/api', (_req, res) => res.status(404).json({ error: 'not_found' }))

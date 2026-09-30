@@ -217,7 +217,9 @@ export function Trama({ data, view, monthOffset, onOpen, onPickMonth }: Props) {
 
   return (
     <main>
-      <h1 className="screen-title">{mode === 'month' ? t('weave.titleMonth', { month: longMonth().format(view.start) }) : t('weave.titleYear', { year: year.y })}</h1>
+      <h1 className="screen-title">
+        {(mode === 'month' ? t('weave.titleMonth', { month: longMonth().format(view.start) }) : t('weave.titleYear', { year: year.y })).replace(/^./, (ch) => ch.toUpperCase())}
+      </h1>
 
       <div className="switch" role="tablist">
         <button role="tab" aria-selected={mode === 'month'} className={mode === 'month' ? 'on' : ''} onClick={() => setMode('month')}>

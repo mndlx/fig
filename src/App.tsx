@@ -219,7 +219,14 @@ export default function App({ offline = false, local = false }: { offline?: bool
   const [monthOffset, setMonthOffset] = useState(0)
   const [calcOpen, setCalcOpen] = useState(false)
   const [reconcileId, setReconcileId] = useState<string | null>(null)
-  const [sheet, setSheet] = useState<{ editing: Transaction | null; preset?: SheetPreset } | null>(null)
+  // Scorciatoia "Nuovo movimento" dall'icona dell'app (?add=1): si apre subito l'inserimento.
+  const [sheet, setSheet] = useState<{ editing: Transaction | null; preset?: SheetPreset } | null>(() =>
+    new URLSearchParams(location.search).has('add') ? { editing: null } : null,
+  )
+  useEffect(() => {
+    // Tolti i parametri di avvio (?add, ?source): un ricaricamento non riapre l'inserimento.
+    if (location.search) history.replaceState(null, '', location.pathname)
+  }, [])
   const [goalForm, setGoalForm] = useState<{ goal: Goal | null; returnTo: Tab; template?: GoalTemplate } | null>(null)
   const [goalDetail, setGoalDetail] = useState<string | null>(null)
   const syncStatus = useSyncStatus()
