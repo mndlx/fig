@@ -36,7 +36,7 @@ export function FigFruit({ color, progress, size = 64, open = false }: { color: 
         <rect className="fig-ripe" x={0} y={5} width={30} height={25} fill={color} style={{ transform: `translateY(${(1 - p) * 24}px)` }} />
         <path d="M11 14c1.5 2 1.5 6 0 9M19 14c-1.5 2-1.5 6 0 9" stroke="var(--surface)" strokeOpacity={0.35} strokeWidth={0.8} fill="none" strokeLinecap="round" />
       </g>
-      <path d={FIG_BODY} fill="none" stroke={p >= 1 ? `color-mix(in srgb, ${color} 55%, var(--ink))` : 'var(--leaf)'} strokeWidth={1.2} strokeDasharray={open ? '2 2' : undefined} />
+      <path d={FIG_BODY} fill="none" stroke={p >= 1 ? `color-mix(in srgb, ${color} 55%, var(--ink))` : `color-mix(in srgb, ${color} 55%, var(--leaf))`} strokeWidth={1.4} strokeDasharray={open ? '2 2' : undefined} />
       <path d="M15 5.5L15.8 2" stroke="var(--leaf)" strokeWidth={1.6} strokeLinecap="round" />
       <path d="M15.6 3.2C17.5 1 20.5 0.8 22 2.2C20.2 4 17.6 4.2 15.6 3.2Z" fill="var(--leaf)" />
     </svg>
@@ -560,7 +560,8 @@ export function GoalForm({ data, goal, onDone, template }: FormProps) {
       </header>
 
       <div className="goal-preview">
-        <FigFruit color={color} progress={targetMinor > 0 ? saved / targetMinor : saved > 0 ? 0.6 : 0.35} size={96} open={targetMinor <= 0} />
+        {/* Anteprima: almeno a metà maturazione, così il colore scelto si vede anche su un obiettivo vuoto. */}
+        <FigFruit color={color} progress={Math.max(0.5, targetMinor > 0 ? saved / targetMinor : 0.6)} size={96} open={targetMinor <= 0} />
       </div>
 
       <div className="card form">
