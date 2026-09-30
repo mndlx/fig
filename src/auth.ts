@@ -13,8 +13,8 @@ export interface User {
 
 export type AuthState =
   | { status: 'signed-in'; user: User }
-  /** Nessuna sessione: si accede oppure si usa FIG senza account. */
-  | { status: 'signed-out' }
+  /** Nessuna sessione: si accede oppure, se il server lo permette, si usa FIG senza account. */
+  | { status: 'signed-out'; localMode: boolean }
   /** Senza rete: si usa l'app con i dati locali. */
   | { status: 'offline' }
   | { status: 'error' }
@@ -55,13 +55,23 @@ export async function initAuth(): Promise<AuthState> {
   } catch {
     return { status: 'offline' }
   }
-  if (res.status === 401) return { status: 'signed-out' }
+  if (res.status === 401) return { status: 'signed-out', localMode: await localModeAllowed() }
   if (res.status === 502 || res.status === 503 || res.status === 504) return { status: 'server-down' }
   if (!res.ok) return { status: 'error' }
   const me = (await res.json()) as User & { auth?: 'oidc' | 'disabled' }
   mode = me.auth ?? 'oidc'
   user = { sub: me.sub, name: me.name, email: me.email }
   return { status: 'signed-in', user }
+}
+
+/** Il server permette l'uso senza account? (Impostazione LOCAL_MODE; nel dubbio no.) */
+async function localModeAllowed(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/config')
+    return res.ok && ((await res.json()) as { localMode?: boolean }).localMode === true
+  } catch {
+    return false
+  }
 }
 
 export function currentUser(): User | null {

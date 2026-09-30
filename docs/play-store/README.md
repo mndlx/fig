@@ -9,7 +9,8 @@ Le regole di Google cambiano spesso: prima di ogni passo controlla la pagina uff
 - Manifest completo (`public/manifest.webmanifest`): nome, icone PNG 192/512, icona *maskable*, categoria finanza, scorciatoia "Nuovo movimento".
 - Service worker: l'app si apre anche offline.
 - Pagine pubbliche: [privacy](https://fig.vlabstudio.net/privacy.html) e [eliminazione account](https://fig.vlabstudio.net/delete-account.html).
-- Eliminazione dell'account dall'app (Impostazioni → Elimina account) e uso senza account.
+- Eliminazione dell'account dall'app (Impostazioni → Elimina account).
+- Uso senza account, **spento finché non lo attivi**: al lancio aggiungi `LOCAL_MODE=1` in `/opt/fig/.env` e riavvia il container (o chiedimelo). Testi della scheda e privacy lo danno per attivo.
 - `/.well-known/assetlinks.json`: il server lo genera da `ANDROID_PACKAGE` e `ANDROID_CERT_SHA256` in `/opt/fig/.env` (vedi passo 4).
 - Grafiche: `icon-512.png` (icona dello Store) e `feature-graphic-1024x500.png`; si rigenerano con `make-assets.mjs`.
 

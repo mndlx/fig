@@ -34,6 +34,8 @@ export const config = {
   authDisabled: process.env.AUTH_DISABLED === '1',
   /** Cartella del frontend compilato, servita insieme alle API. */
   staticDir: path.resolve(process.env.STATIC_DIR ?? '../dist'),
+  /** Uso di FIG senza account (dati solo nel browser). Spento finché LOCAL_MODE non vale 1. */
+  localMode: process.env.LOCAL_MODE === '1',
   /** App Android (Trusted Web Activity): pacchetto e impronte SHA-256 dei certificati di firma, separate da virgola. */
   androidPackage: process.env.ANDROID_PACKAGE ?? '',
   androidCertSha256: (process.env.ANDROID_CERT_SHA256 ?? '').split(',').map((s) => s.trim().toUpperCase()).filter(Boolean),

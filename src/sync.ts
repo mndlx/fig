@@ -50,7 +50,20 @@ function isQuiet(): boolean {
   return !!tx && (tx[REMOTE] === true || tx.mode === 'versionchange')
 }
 
+/**
+ * Senza account non c'è niente da inviare: le modifiche non vanno in coda.
+ * Se poi si accede, i dati locali vengono caricati tutti al primo giro (adopt → queueLocalOnly).
+ */
+let localOnly = false
+
+export async function stopSyncQueue() {
+  localOnly = true
+  // Code rimaste da versioni precedenti o da un account da cui si è usciti: non servono più.
+  await db.syncQueue.clear()
+}
+
 function enqueue(tbl: SyncedTable, key: unknown, deleted: boolean) {
+  if (localOnly) return
   const entry: QueuedChange = { tbl, id: String(key), deleted, at: Date.now() }
   void Dexie.ignoreTransaction(() => db.syncQueue.put(entry)).then(() => {
     void refreshPending()

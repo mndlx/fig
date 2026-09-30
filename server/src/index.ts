@@ -26,6 +26,8 @@ app.get('/.well-known/assetlinks.json', (_req, res) => {
     },
   ])
 })
+// Impostazioni pubbliche per la pagina prima del login.
+app.get('/api/config', (_req, res) => res.json({ localMode: config.localMode }))
 app.use('/auth', authRouter(db))
 app.use('/api', requireAuth(db), syncRouter(db), accountRouter(db))
 app.use('/api', (_req, res) => res.status(404).json({ error: 'not_found' }))

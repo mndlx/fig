@@ -6,7 +6,7 @@ import { db } from './db'
 import { t } from './i18n'
 import { IconFig } from './icons'
 import { materializeRecurring } from './recurring'
-import { startSync } from './sync'
+import { startSync, stopSyncQueue } from './sync'
 import { applyTheme, readTheme } from './theme'
 import '@fontsource-variable/fraunces/opsz.css'
 import '@fontsource-variable/inter'
@@ -89,9 +89,13 @@ async function boot() {
     if (auth.status === 'signed-out') return signIn()
     if (auth.status !== 'offline') return root.render(<Gate kind={auth.status} />)
     offline = true
-  } else if (isLocalOnly()) {
+  } else if (isLocalOnly() && (auth.status !== 'signed-out' || auth.localMode)) {
+    // Senza account: niente coda di sincronizzazione, i dati restano solo nel browser.
     local = true
+    await stopSyncQueue()
   } else if (auth.status === 'signed-out') {
+    // Modalità senza account spenta sul server: si va dritti al login (i dati locali restano e vengono caricati dopo l'accesso).
+    if (!auth.localMode) return signIn()
     return root.render(<Welcome />)
   } else {
     return root.render(<Gate kind={auth.status} />)
