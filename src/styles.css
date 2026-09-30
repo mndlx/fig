@@ -14,6 +14,8 @@
   /* Testo nel colore del marchio: prugna in chiaro, rosa in scuro. */
   --brand-text: #5e2b4f;
   --leaf: #6f8f5e;
+  --fig-unripe: #e2e8d2;
+  --branch: #8a6a4a;
   --serif: 'Fraunces Variable', 'Fraunces', Georgia, serif;
   --sans: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
   --shadow: 0 1px 2px rgba(30, 26, 23, 0.04), 0 8px 24px rgba(30, 26, 23, 0.06);
@@ -37,6 +39,8 @@
     --fig-soft: #b98aa9;
     --brand-text: #b98aa9;
     --leaf: #9dbb8a;
+    --fig-unripe: #2c3424;
+    --branch: #b99572;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
     color-scheme: dark;
   }
@@ -57,6 +61,8 @@
   --fig-soft: #b98aa9;
   --brand-text: #b98aa9;
   --leaf: #9dbb8a;
+  --fig-unripe: #2c3424;
+  --branch: #b99572;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.25);
   color-scheme: dark;
 }
@@ -3049,4 +3055,38 @@ button.danger:disabled {
 }
 .settings-foot a {
   color: inherit;
+}
+
+/* Fichi: la parte matura sale con una transizione, tranne per chi preferisce meno movimento */
+.fig-fruit .fig-ripe {
+  transition: transform 0.7s cubic-bezier(0.3, 1.2, 0.5, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .fig-fruit .fig-ripe {
+    transition: none;
+  }
+}
+
+/* Raccolta: il fico maturo fa un piccolo guizzo quando si apre l'obiettivo */
+.harvest-title {
+  margin: 0 0 4px;
+  font-family: var(--serif);
+  font-size: 18px;
+}
+.goal-hero.ripe .fig-fruit {
+  animation: harvest 0.9s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+  transform-origin: 50% 10%;
+}
+@keyframes harvest {
+  30% {
+    transform: rotate(-8deg) scale(1.06);
+  }
+  60% {
+    transform: rotate(5deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .goal-hero.ripe .fig-fruit {
+    animation: none;
+  }
 }

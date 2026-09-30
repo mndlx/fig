@@ -12,49 +12,33 @@ const DAY = 86_400_000
 const monthYear = () => dateFmt({ month: 'long', year: 'numeric' })
 const shortDate = () => dateFmt({ day: 'numeric', month: 'short', year: 'numeric' })
 
+/** Sagoma del fico in un riquadro 30×30: corpo da y=4 (picciolo) a y=29 (fondo). */
+export const FIG_BODY = 'M15 5.5C21 5.5 24.5 13 24 19.5C23.5 25.5 19.5 28.5 15 28.5C10.5 28.5 6.5 25.5 6 19.5C5.5 13 9 5.5 15 5.5Z'
+
 /**
- * Un gomitolo disegnato: si riempie dal basso man mano che ci metti soldi.
- * Senza obiettivo il bordo è tratteggiato: il riempimento non misura niente.
+ * Un fico disegnato: matura dal basso, dal verde acerbo al colore dell'obiettivo, man mano che
+ * ci metti soldi. La maturazione si legge anche dal livello (non solo dal colore) e accanto c'è
+ * sempre la cifra. Senza traguardo il contorno è tratteggiato: il riempimento non misura niente.
  */
-export function YarnBall({ color, progress, size = 64, open = false }: { color: string; progress: number; size?: number; open?: boolean }) {
+export function FigFruit({ color, progress, size = 64, open = false }: { color: string; progress: number; size?: number; open?: boolean }) {
   const id = useId()
-  const r = size / 2 - 4
-  const c = size / 2
-  const level = c + r - 2 * r * Math.min(1, Math.max(0, progress))
+  const p = Math.min(1, Math.max(0, progress))
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true" style={{ flex: 'none', overflow: 'visible' }}>
+    <svg className="fig-fruit" width={size} height={size} viewBox="0 0 30 30" aria-hidden="true" style={{ flex: 'none', overflow: 'visible' }}>
       <defs>
         <clipPath id={id}>
-          <circle cx={c} cy={c} r={r} />
+          <path d={FIG_BODY} />
         </clipPath>
       </defs>
-      <circle cx={c} cy={c} r={r} fill="var(--key)" />
+      <path d={FIG_BODY} fill="var(--fig-unripe)" />
       <g clipPath={`url(#${id})`}>
-        <rect x={0} y={level} width={size} height={size} fill={color} />
-        {/* Fili avvolti: archi che danno l'aspetto del gomitolo. */}
-        {[-0.55, -0.2, 0.15, 0.5].map((k, i) => (
-          <ellipse
-            key={i}
-            cx={c + k * r * 0.6}
-            cy={c}
-            rx={r * 0.35}
-            ry={r * 1.05}
-            transform={`rotate(${35 + i * 12} ${c} ${c})`}
-            fill="none"
-            stroke="var(--surface)"
-            strokeOpacity={0.35}
-            strokeWidth={1.2}
-          />
-        ))}
+        {/* Parte matura: sale dal fondo, con una transizione morbida quando cambia. */}
+        <rect className="fig-ripe" x={0} y={5} width={30} height={25} fill={color} style={{ transform: `translateY(${(1 - p) * 24}px)` }} />
+        <path d="M11 14c1.5 2 1.5 6 0 9M19 14c-1.5 2-1.5 6 0 9" stroke="var(--surface)" strokeOpacity={0.35} strokeWidth={0.8} fill="none" strokeLinecap="round" />
       </g>
-      <circle cx={c} cy={c} r={r} fill="none" stroke={color} strokeWidth={2} strokeDasharray={open ? '3 3' : undefined} />
-      <path
-        d={`M ${c + r * 0.7} ${c + r * 0.72} q ${r * 0.5} ${r * 0.1} ${r * 0.45} ${r * 0.5} t ${r * 0.4} ${r * 0.25}`}
-        fill="none"
-        stroke={color}
-        strokeWidth={2}
-        strokeLinecap="round"
-      />
+      <path d={FIG_BODY} fill="none" stroke={p >= 1 ? `color-mix(in srgb, ${color} 55%, var(--ink))` : 'var(--leaf)'} strokeWidth={1.2} strokeDasharray={open ? '2 2' : undefined} />
+      <path d="M15 5.5L15.8 2" stroke="var(--leaf)" strokeWidth={1.6} strokeLinecap="round" />
+      <path d="M15.6 3.2C17.5 1 20.5 0.8 22 2.2C20.2 4 17.6 4.2 15.6 3.2Z" fill="var(--leaf)" />
     </svg>
   )
 }
@@ -177,12 +161,12 @@ function GoalsEmpty({ onEdit }: { onEdit: GoalsProps['onEdit'] }) {
   return (
     <section className="goals-empty">
       <div className="goals-empty-art" aria-hidden="true">
-        <YarnBall color="#7B4B6A" progress={0.62} size={120} />
+        <FigFruit color="#7B4B6A" progress={0.62} size={120} />
         <span className="float a">
-          <YarnBall color="#D9A441" progress={0.3} size={44} />
+          <FigFruit color="#D9A441" progress={0.3} size={44} />
         </span>
         <span className="float b">
-          <YarnBall color="#2F6F73" progress={0.8} size={34} />
+          <FigFruit color="#2F6F73" progress={0.8} size={34} />
         </span>
       </div>
       <h2 className="goals-empty-title">{t('goals.emptyTitle')}</h2>
@@ -242,7 +226,7 @@ export function Goals({ data, onAdd, onOpen, onEdit }: GoalsProps) {
     return (
       <div key={g.id} className={`goal-row${g.archived ? ' archived' : ''}`} style={{ '--c': g.color } as CSSProperties}>
         <button className="goal-row-main" onClick={() => onOpen(g)}>
-          <YarnBall color={g.color} progress={g.target > 0 ? s.progress : s.saved > 0 ? 0.6 : 0} size={52} open={g.target <= 0} />
+          <FigFruit color={g.color} progress={g.target > 0 ? s.progress : s.saved > 0 ? 0.6 : 0} size={52} open={g.target <= 0} />
           <span className="goal-text">
             <span className="goal-name">{g.name}</span>
             <span className="goal-amount">
@@ -357,8 +341,8 @@ export function GoalDetail({ data, goal, onBack, onEdit, onAdd, onOpenTx }: Deta
         </button>
       </header>
 
-      <section className="goal-hero" style={{ '--c': goal.color } as CSSProperties}>
-        <YarnBall color={goal.color} progress={goal.target > 0 ? s.progress : s.saved > 0 ? 0.6 : 0} size={132} open={goal.target <= 0} />
+      <section className={`goal-hero${s.status === 'reached' ? ' ripe' : ''}`} style={{ '--c': goal.color } as CSSProperties}>
+        <FigFruit color={goal.color} progress={goal.target > 0 ? s.progress : s.saved > 0 ? 0.6 : 0} size={132} open={goal.target <= 0} />
         <p className="goal-hero-amount">{money(s.saved)}</p>
         {goal.target > 0 && (
           <p className="muted" style={{ margin: 0 }}>
@@ -372,6 +356,7 @@ export function GoalDetail({ data, goal, onBack, onEdit, onAdd, onOpenTx }: Deta
 
       {s.status === 'reached' && !goal.archived && (
         <div className="card reached">
+          <p className="harvest-title">{t('goals.harvestTitle')}</p>
           <p style={{ margin: '0 0 10px' }}>{t('goals.reachedBanner')}</p>
           <button className="secondary" onClick={() => setGoalArchived(goal.id, true).then(onBack)}>
             {t('common.archive')}
@@ -575,7 +560,7 @@ export function GoalForm({ data, goal, onDone, template }: FormProps) {
       </header>
 
       <div className="goal-preview">
-        <YarnBall color={color} progress={targetMinor > 0 ? saved / targetMinor : saved > 0 ? 0.6 : 0.35} size={96} open={targetMinor <= 0} />
+        <FigFruit color={color} progress={targetMinor > 0 ? saved / targetMinor : saved > 0 ? 0.6 : 0.35} size={96} open={targetMinor <= 0} />
       </div>
 
       <div className="card form">

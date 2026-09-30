@@ -4,7 +4,7 @@ import { CategoryIcon } from './catIcons'
 import { accountBalance, goalBalances, goalDelta, type AppData } from './data'
 import { db, WOOL, type Frequency, type Kind, type Transaction } from './db'
 import { createSeries } from './recurring'
-import { YarnBall } from './Goals'
+import { FigFruit } from './Goals'
 import { Calculator } from './Calculator'
 import { builtinName, dateFmt, decimalSep, t, type Key } from './i18n'
 import { convertMinor, fetchRate, formatMoney, fromMinor, moneyParts, parseInput } from './money'
@@ -371,7 +371,7 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
       chosen = {
         label: goalDir === 'save' ? `${t('add.payAvailable')} → ${g.name}` : `${g.name} → ${t('add.payAvailable')}`,
         color: g.color,
-        icon: <YarnBall color={g.color} progress={0.6} size={22} />,
+        icon: <FigFruit color={g.color} progress={0.6} size={22} />,
       }
   } else if (selected && mode === 'transfer') {
     chosen = { label: `${accName(accountId)} → ${accName(selected)}`, color: 'var(--thread)', icon: <IconWallet size={18} /> }
@@ -553,7 +553,7 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
                     {from === 'avail' &&
                       (activeGoals.length === 0 ? (
                         <div className="goal-empty-mini">
-                          <YarnBall color="#2F6F73" progress={0.35} size={64} />
+                          <FigFruit color="#2F6F73" progress={0.35} size={64} />
                           <p className="muted small">{t('add.noGoals')}</p>
                           <button className="primary" onClick={onNewGoal}>
                             {t('add.createGoal')}
@@ -563,7 +563,7 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
                         <div className="tiles">
                           {activeGoals.map((g) => {
                             const bal = balances.get(g.id) ?? 0
-                            return tile(g.id, g.name, g.color, <YarnBall color={g.color} progress={g.target > 0 ? bal / g.target : bal > 0 ? 0.5 : 0} size={50} />, formatMoney(bal, mainCurrency))
+                            return tile(g.id, g.name, g.color, <FigFruit color={g.color} progress={g.target > 0 ? bal / g.target : bal > 0 ? 0.5 : 0} size={50} />, formatMoney(bal, mainCurrency))
                           })}
                           <button className="tile" onClick={onNewGoal}>
                             <span className="tile-icon ghost">

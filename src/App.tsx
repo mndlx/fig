@@ -7,7 +7,7 @@ import { accountBalance, goalBalances, signedMain, useAppData, type AppData } fr
 import { db, type Currency, type Goal, type Transaction } from './db'
 import { GoalDetail, GoalForm, Goals, type GoalTemplate } from './Goals'
 import { builtinName, dateFmt, getLang, readLangSetting, resolveLang, setLang, t, writeLangSetting, type LangSetting } from './i18n'
-import { IconFig, IconGear, IconLeft, IconLoom, IconPlus, IconRight, IconThread, IconYarn } from './icons'
+import { IconBranch, IconFig, IconFigOutline, IconGear, IconLeft, IconPlus, IconRight, IconTree } from './icons'
 import { formatMoney, moneyParts, parseTyped } from './money'
 import { migrateInitialBalances, saveOpening } from './opening'
 import { Settings } from './Settings'
@@ -268,11 +268,18 @@ export default function App({ offline = false, local = false }: { offline?: bool
   }
 
   function describe(tx: Transaction): string {
-    const goal = data!.goals.find((g) => g.id === tx.goalId)?.name ?? t('thread.stash')
+    const goalObj = data!.goals.find((g) => g.id === tx.goalId)
+    const goal = goalObj?.name ?? t('thread.stash')
     const amount = formatMoney(tx.mainAmount, mainCurrency)
     switch (tx.kind) {
-      case 'save':
+      case 'save': {
+        // Raccolta: questo accantonamento porta l'obiettivo al traguardo.
+        if (goalObj && goalObj.target > 0) {
+          const before = goalBalances(data!.transactions.filter((x) => x.id !== tx.id)).get(goalObj.id) ?? 0
+          if (before < goalObj.target && before + tx.mainAmount >= goalObj.target) return t('toast.harvest', { goal })
+        }
         return t('toast.save', { amount, goal })
+      }
       case 'release':
         return t('toast.release', { amount, goal })
       case 'income':
@@ -576,16 +583,16 @@ export default function App({ offline = false, local = false }: { offline?: bool
       <div className="dock-wrap">
         <nav className="dock" aria-label={t('nav.sections')}>
           <button className={`dock-tab${tab === 'filo' ? ' on' : ''}`} onClick={() => setTab('filo')}>
-            <IconThread />
+            <IconBranch />
             {t('nav.thread')}
           </button>
-          <button className={`dock-tab${tab === 'trama' ? ' on' : ''}`} onClick={() => setTab('trama')}>
-            <IconLoom />
-            {t('nav.weave')}
-          </button>
           <button className={`dock-tab${tab === 'goals' ? ' on' : ''}`} onClick={() => setTab('goals')}>
-            <IconYarn />
+            <IconFigOutline />
             {t('nav.goals')}
+          </button>
+          <button className={`dock-tab${tab === 'trama' ? ' on' : ''}`} onClick={() => setTab('trama')}>
+            <IconTree />
+            {t('nav.weave')}
           </button>
         </nav>
         <button

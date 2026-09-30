@@ -8,24 +8,26 @@ function Icon({ children }: { children: ReactNode }) {
   )
 }
 
-export const IconThread = () => (
+/** Mese: un ramo con due foglie. */
+export const IconBranch = () => (
   <Icon>
-    <path d="M12 3c3 3-3 6 0 9s-3 6 0 9" />
-    <circle cx="12" cy="8" r="1.6" fill="currentColor" />
-    <circle cx="12" cy="16" r="1.6" fill="currentColor" />
+    <path d="M12 21c0-5 .5-9 3-13 1-1.6 2.3-2.8 4-4" />
+    <path d="M13.2 13.5C10 13.8 7.5 12 6.5 9.2c3-.5 5.6.8 6.7 4.3z" />
+    <path d="M15.4 8.4c1.9-2.6 4.4-3 5.6-2.5-.8 2.3-3 3.7-5.6 2.5z" />
   </Icon>
 )
-export const IconLoom = () => (
+/** Statistiche: un albero, la chioma come riepilogo del mese. */
+export const IconTree = () => (
   <Icon>
-    <rect x="4" y="4" width="16" height="16" rx="3" />
-    <path d="M9.5 4v16M14.5 4v16M4 12h16" />
+    <path d="M12 21v-7M12 17l-3-2.5M12 15.5l3-2" />
+    <path d="M7.5 14.5A4.5 4.5 0 0 1 6 6.5a6 6 0 0 1 11.5-.5 4.5 4.5 0 0 1-1 8.5z" />
   </Icon>
 )
-export const IconYarn = () => (
+/** Obiettivi: un fico. */
+export const IconFigOutline = () => (
   <Icon>
-    <circle cx="11" cy="11" r="7" />
-    <path d="M6 7.5c3 1 6 4 7 10M9 4.5c3 2 6 6 6.5 11M5 12c2.5 0 5.5 2 7 6" />
-    <path d="M16 16c1.5 1 2.5 2 4 2.5" />
+    <path d="M12 6.5c4.2 0 6.6 5 6.2 9.4C17.8 19.6 15 21 12 21s-5.8-1.4-6.2-5.1C5.4 11.5 7.8 6.5 12 6.5z" />
+    <path d="M12 6.5 12.6 3.5M12.6 4.2c1.4-1.5 3.6-1.6 4.7-.6-1.3 1.4-3.3 1.6-4.7.6z" />
   </Icon>
 )
 export const IconPlus = () => (

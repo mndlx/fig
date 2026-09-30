@@ -5,12 +5,14 @@ import { CategoryIcon } from './catIcons'
 import { signedMain } from './data'
 import type { Account, Category, Currency, Goal, Transaction } from './db'
 import { builtinName, dateFmt, t } from './i18n'
+import { FIG_BODY } from './Goals'
 import { formatMoney } from './money'
 
 /**
- * Il filo del mese, dal più recente in alto all'inizio del mese in basso.
- * Lo spessore è il disponibile in quel momento: in basso (inizio mese) è spesso,
- * salendo verso oggi si assottiglia a ogni uscita e si ingrossa a ogni entrata.
+ * Il ramo del mese, dal più recente in alto all'inizio del mese in basso.
+ * Sul ramo: foglie per le uscite (colore della categoria), gemme per le entrate, fichi per
+ * i soldi messi da parte o ripresi. Lo spessore segue il disponibile, ma è solo un indizio
+ * secondario: il saldo si legge sempre dai numeri.
  * I giorni passati da più di un giorno sono compattati in una riga che si apre con un tocco.
  */
 
@@ -88,20 +90,39 @@ function dayLabel(d: Date): string {
   return dayFormat().format(d)
 }
 
-/** Nodo a forma di gomitolo, per i soldi messi da parte o ripresi. */
-function YarnKnot({ x, y, r, color }: { x: number; y: number; r: number; color: string }) {
+const rim = (color: string) => `color-mix(in srgb, ${color} 55%, var(--ink))`
+
+/** Piccolo fico appeso al ramo, per i soldi messi da parte o ripresi. */
+function FigKnot({ x, y, size, color }: { x: number; y: number; size: number; color: string }) {
+  const s = size / 30
+  return (
+    <g className="knot" transform={`translate(${x - 15 * s} ${y - 14 * s}) scale(${s})`}>
+      <path d={FIG_BODY} fill={color} stroke={rim(color)} strokeWidth={1.4 / s} />
+      <path d="M15 5.5L15.8 2" stroke="var(--leaf)" strokeWidth={2} strokeLinecap="round" />
+      <path d="M15.6 3.2C17.5 1 20.5 0.8 22 2.2C20.2 4 17.6 4.2 15.6 3.2Z" fill="var(--leaf)" />
+    </g>
+  )
+}
+
+/** Foglia che parte dal ramo verso sinistra o destra; la lunghezza cresce con l'importo. */
+function Leaf({ x, y, length, side, color, ring }: { x: number; y: number; length: number; side: 1 | -1; color: string; ring?: string }) {
+  const L = length * side
+  const w = length * 0.42
+  const d = `M ${x} ${y} C ${x + L * 0.25} ${y - w}, ${x + L * 0.75} ${y - w * 0.9}, ${x + L} ${y - length * 0.18} C ${x + L * 0.72} ${y + w * 0.75}, ${x + L * 0.25} ${y + w * 0.7}, ${x} ${y} Z`
   return (
     <g className="knot">
-      <circle cx={x} cy={y} r={r + 5} fill={color} opacity={0.18} />
-      <circle cx={x} cy={y} r={r} fill={color} stroke="var(--bg)" strokeWidth={2.5} />
-      <path
-        d={`M ${x - r * 0.6} ${y - r * 0.3} q ${r * 0.6} ${r * 0.5} ${r * 1.1} ${r * 0.1} M ${x - r * 0.5} ${y + r * 0.35} q ${r * 0.6} -${r * 0.5} ${r * 1.05} ${r * 0.05}`}
-        fill="none"
-        stroke="var(--bg)"
-        strokeOpacity={0.7}
-        strokeWidth={1.2}
-        strokeLinecap="round"
-      />
+      <path d={d} fill={color} stroke={ring ?? rim(color)} strokeWidth={ring ? 1.8 : 1} strokeLinejoin="round" />
+      <path d={`M ${x} ${y} Q ${x + L * 0.5} ${y - w * 0.12} ${x + L * 0.9} ${y - length * 0.17}`} stroke="var(--bg)" strokeOpacity={0.55} strokeWidth={0.9} fill="none" />
+    </g>
+  )
+}
+
+/** Gemma sul ramo, per le entrate: un bocciolo con un germoglio. */
+function Bud({ x, y, r, color }: { x: number; y: number; r: number; color: string }) {
+  return (
+    <g className="knot">
+      <circle cx={x} cy={y} r={r} fill={color} stroke={rim(color)} strokeWidth={1.2} />
+      <path d={`M ${x + r * 0.2} ${y - r * 0.9} C ${x + r * 0.6} ${y - r * 2}, ${x + r * 1.6} ${y - r * 2.1}, ${x + r * 2} ${y - r * 1.7} C ${x + r * 1.5} ${y - r * 1.1}, ${x + r * 0.7} ${y - r * 1}, ${x + r * 0.2} ${y - r * 0.9} Z`} fill="var(--leaf)" />
     </g>
   )
 }
@@ -187,8 +208,8 @@ export function ThreadView(props: Props) {
   }, [rows, startBalance])
   const maxAmount = useMemo(() => Math.max(1, ...monthTx.map((tx) => tx.mainAmount)), [monthTx])
 
-  const width = (balance: number) => (balance <= 0 ? 1.25 : 1.5 + 5.5 * Math.min(1, balance / ref))
-  const tone = (balance: number) => (balance < 0 ? 'var(--danger)' : 'var(--thread)')
+  const width = (balance: number) => (balance <= 0 ? 1.5 : 2 + 3.5 * Math.min(1, balance / ref))
+  const tone = (balance: number) => (balance < 0 ? 'var(--danger)' : 'var(--branch)')
 
   // Dopo un salvataggio porta in vista il nodo appena annodato.
   useEffect(() => {
@@ -378,6 +399,7 @@ export function ThreadView(props: Props) {
   }
 
   let offset = 0
+  let leafCount = 0
   return (
     <div className="thread">
       {monthTx.length > 0 && searchBar}
@@ -444,7 +466,7 @@ export function ThreadView(props: Props) {
             <div key="start" className="row row-start" style={{ height: h }}>
               <svg width={LANE} height={h} aria-hidden="true">
                 <path d={pathBetween(0, h / 2, y)} stroke={tone(row.balance)} strokeWidth={width(row.balance)} fill="none" strokeLinecap="round" />
-                <circle cx={xAt(y + h / 2)} cy={h / 2} r={width(row.balance) / 2 + 2} fill="var(--thread)" />
+                <circle cx={xAt(y + h / 2)} cy={h / 2} r={width(row.balance) / 2 + 2} fill="var(--branch)" />
               </svg>
               <div className="row-body">
                 <span className="muted">{t('thread.start')}</span>
@@ -514,6 +536,9 @@ export function ThreadView(props: Props) {
         const mid = h / 2
         const x = xAt(y + mid)
         const r = 5 + 7 * Math.sqrt(tx.mainAmount / maxAmount)
+        // Le foglie si alternano ai lati del ramo, come su un ramo vero.
+        const side: 1 | -1 = leafCount++ % 2 === 0 ? 1 : -1
+        const leafColor = d.cat?.color ?? 'var(--muted)'
 
         return (
           <button
@@ -523,24 +548,22 @@ export function ThreadView(props: Props) {
             onClick={() => props.onOpen(tx)}
           >
             <svg width={LANE} height={h} aria-hidden="true">
-              {/* Dall'alto (dopo il movimento) al basso (prima): il filo sotto è quello di prima. */}
+              {/* Dall'alto (dopo il movimento) al basso (prima): il ramo sotto è quello di prima. */}
               <path d={pathBetween(0, mid, y)} stroke={tone(row.after)} strokeWidth={width(row.after)} fill="none" strokeLinecap="round" />
               <path d={pathBetween(mid, h, y)} stroke={tone(row.before)} strokeWidth={width(row.before)} fill="none" strokeLinecap="round" />
               {tx.kind === 'opening' ? (
                 <g className="knot">
-                  <circle cx={x} cy={mid} r={10} fill="var(--bg)" stroke="var(--thread)" strokeWidth={2.5} />
-                  <circle cx={x} cy={mid} r={4} fill="var(--thread)" />
+                  <circle cx={x} cy={mid} r={10} fill="var(--bg)" stroke="var(--branch)" strokeWidth={2.5} />
+                  <circle cx={x} cy={mid} r={4} fill="var(--branch)" />
                 </g>
               ) : tx.kind === 'transfer' ? (
                 <circle className="knot" cx={x} cy={mid} r={5} fill="var(--bg)" stroke="var(--muted)" strokeWidth={1.5} />
               ) : tx.kind === 'save' || tx.kind === 'release' ? (
-                <YarnKnot x={x} y={mid} r={Math.max(7, r)} color={d.goal?.color ?? 'var(--muted)'} />
+                <FigKnot x={x} y={mid} size={Math.max(18, r * 2.4)} color={d.goal?.color ?? 'var(--muted)'} />
+              ) : tx.kind === 'income' ? (
+                <Bud x={x} y={mid} r={Math.max(4.5, r * 0.75)} color={leafColor} />
               ) : (
-                <g className="knot">
-                  <circle cx={x} cy={mid} r={r + 5} fill={d.cat?.color ?? 'var(--muted)'} opacity={0.18} />
-                  {d.goal && <circle cx={x} cy={mid} r={r + 3.5} fill="none" stroke={d.goal.color} strokeWidth={2} />}
-                  <circle cx={x} cy={mid} r={r} fill={d.cat?.color ?? 'var(--muted)'} stroke="var(--bg)" strokeWidth={2.5} />
-                </g>
+                <Leaf x={x} y={mid} length={Math.min(10 + r * 1.4, side === 1 ? LANE - x - 2 : x - 2)} side={side} color={leafColor} ring={d.goal?.color} />
               )}
             </svg>
             <div className="row-body">
