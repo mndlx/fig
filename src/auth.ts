@@ -1,7 +1,8 @@
 /**
  * Accesso: lo gestisce il server (Keycloak, client confidenziale). La pagina chiede
- * "chi sono?" a /api/me; se non c'è una sessione va a /auth/login, che porta a Keycloak
- * e torna con un cookie HttpOnly. Nessun token passa dal JavaScript.
+ * "chi sono?" a /api/me; se non c'è una sessione si sceglie se accedere (/auth/login,
+ * che porta a Keycloak e torna con un cookie HttpOnly) o usare FIG senza account,
+ * con i dati solo sul dispositivo. Nessun token passa dal JavaScript.
  */
 
 export interface User {
@@ -12,6 +13,8 @@ export interface User {
 
 export type AuthState =
   | { status: 'signed-in'; user: User }
+  /** Nessuna sessione: si accede oppure si usa FIG senza account. */
+  | { status: 'signed-out' }
   /** Senza rete: si usa l'app con i dati locali. */
   | { status: 'offline' }
   | { status: 'error' }
@@ -20,6 +23,26 @@ export type AuthState =
 
 let user: User | null = null
 let mode: 'oidc' | 'disabled' = 'oidc'
+
+/** Modalità senza account: scelta su questo dispositivo, finché non si accede. */
+const LOCAL_KEY = 'fig-local'
+
+export function isLocalOnly(): boolean {
+  try {
+    return localStorage.getItem(LOCAL_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+export function setLocalOnly(on: boolean) {
+  try {
+    if (on) localStorage.setItem(LOCAL_KEY, '1')
+    else localStorage.removeItem(LOCAL_KEY)
+  } catch {
+    // Memoria non disponibile: al prossimo avvio si richiede la scelta.
+  }
+}
 
 export function signIn() {
   location.href = `/auth/login?returnTo=${encodeURIComponent(location.pathname)}`
@@ -32,11 +55,7 @@ export async function initAuth(): Promise<AuthState> {
   } catch {
     return { status: 'offline' }
   }
-  if (res.status === 401) {
-    signIn()
-    // La pagina sta per andare a Keycloak: non c'è altro da fare.
-    return new Promise(() => {})
-  }
+  if (res.status === 401) return { status: 'signed-out' }
   if (res.status === 502 || res.status === 503 || res.status === 504) return { status: 'server-down' }
   if (!res.ok) return { status: 'error' }
   const me = (await res.json()) as User & { auth?: 'oidc' | 'disabled' }
@@ -62,4 +81,19 @@ export async function signOut() {
     /* offline: si esce comunque dall'app */
   }
   location.href = url
+}
+
+/**
+ * Cancella l'account su FIG: tutti i dati sul server, su ogni dispositivo.
+ * Restituisce l'indirizzo a cui andare dopo (uscita da Keycloak) oppure lancia un errore.
+ */
+export async function deleteAccount(): Promise<string> {
+  const res = await fetch('/api/account/delete', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirm: true }),
+  })
+  if (!res.ok) throw new Error(`delete_${res.status}`)
+  return ((await res.json()) as { url?: string }).url ?? '/'
 }

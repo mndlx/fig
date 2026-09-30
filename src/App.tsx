@@ -198,7 +198,7 @@ function readFlag(key: string): boolean {
   }
 }
 
-export default function App({ offline = false }: { offline?: boolean }) {
+export default function App({ offline = false, local = false }: { offline?: boolean; local?: boolean }) {
   const data = useAppData()
   const [langSetting, setLangSetting] = useState<LangSetting>(readLangSetting)
   const lang = resolveLang(langSetting)
@@ -294,7 +294,7 @@ export default function App({ offline = false }: { offline?: boolean }) {
   }
 
   // Su un dispositivo nuovo si aspetta la prima sincronizzazione: il saldo iniziale potrebbe già essere sul server.
-  const dataReady = offline || !authEnabled() || syncStatus.lastSync !== null
+  const dataReady = offline || local || !authEnabled() || syncStatus.lastSync !== null
   const showOnboarding = dataReady && !onboardingDone && data.transactions.length === 0 && data.accounts.every((a) => a.initialBalance === 0)
 
   const monthNav = (
@@ -411,7 +411,7 @@ export default function App({ offline = false }: { offline?: boolean }) {
   if (tab === 'settings') {
     return (
       <div className="app">
-        <Settings data={data} offline={offline} langSetting={langSetting} onLangChange={changeLang} onBack={() => setTab('filo')} />
+        <Settings data={data} offline={offline} local={local} langSetting={langSetting} onLangChange={changeLang} onBack={() => setTab('filo')} />
         {toastEl}
       </div>
     )

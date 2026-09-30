@@ -5,7 +5,7 @@ import { decimalSep, locale, t } from './i18n'
 
 type Op = '+' | '−' | '×' | '÷'
 
-interface State {
+export interface State {
   /** Numero sul display: quello che si sta scrivendo o l'ultimo risultato. */
   entry: string
   /** Primo operando in attesa dell'operazione. */
@@ -20,7 +20,7 @@ interface State {
   error: boolean
 }
 
-const START: State = { entry: '0', acc: null, op: null, expr: '', fresh: false, repeat: null, error: false }
+export const CALC_START: State = { entry: '0', acc: null, op: null, expr: '', fresh: false, repeat: null, error: false }
 
 /** Arrotonda gli errori della virgola mobile (0,1 + 0,2) a 12 cifre significative. */
 function clean(n: number): number {
@@ -53,11 +53,11 @@ function showEntry(entry: string): string {
   return (negative ? '−' : '') + grouped + (dec !== undefined ? decimalSep() + dec : '')
 }
 
-function reduce(s: State, key: string): State {
+export function calcReduce(s: State, key: string): State {
   if (s.error && key !== 'C' && key !== 'CE') return s
   const value = Number(s.entry)
   const withResult = (n: number, expr: string, extra: Partial<State> = {}): State =>
-    Number.isFinite(n) ? { ...s, entry: String(n), expr, fresh: true, ...extra } : { ...START, entry: '0', expr, error: true }
+    Number.isFinite(n) ? { ...s, entry: String(n), expr, fresh: true, ...extra } : { ...CALC_START, entry: '0', expr, error: true }
 
   if (/^[0-9]$/.test(key)) {
     if (s.fresh || s.entry === '0') return { ...s, entry: key, fresh: false, expr: s.op ? s.expr : '' }
@@ -72,9 +72,9 @@ function reduce(s: State, key: string): State {
       if (s.fresh) return { ...s, expr: s.op ? s.expr : '' }
       return { ...s, entry: s.entry.length > 1 && s.entry !== '-0' ? s.entry.slice(0, -1).replace(/^-$/, '0') : '0' }
     case 'CE':
-      return s.error ? START : { ...s, entry: '0', fresh: false }
+      return s.error ? CALC_START : { ...s, entry: '0', fresh: false }
     case 'C':
-      return START
+      return CALC_START
     case '±':
       if (value === 0) return s
       return { ...s, entry: s.entry.startsWith('-') ? s.entry.slice(1) : '-' + s.entry }
@@ -84,11 +84,11 @@ function reduce(s: State, key: string): State {
       return { ...s, entry: String(n), fresh: true }
     }
     case '1/x':
-      return value === 0 ? { ...START, error: true, expr: `1/(${show(value)})` } : withResult(clean(1 / value), s.op ? s.expr : `1/(${show(value)})`)
+      return value === 0 ? { ...CALC_START, error: true, expr: `1/(${show(value)})` } : withResult(clean(1 / value), s.op ? s.expr : `1/(${show(value)})`)
     case 'x²':
       return withResult(clean(value * value), s.op ? s.expr : `sqr(${show(value)})`)
     case '√x':
-      return value < 0 ? { ...START, error: true, expr: `√(${show(value)})` } : withResult(clean(Math.sqrt(value)), s.op ? s.expr : `√(${show(value)})`)
+      return value < 0 ? { ...CALC_START, error: true, expr: `√(${show(value)})` } : withResult(clean(Math.sqrt(value)), s.op ? s.expr : `√(${show(value)})`)
     case '+':
     case '−':
     case '×':
@@ -97,7 +97,7 @@ function reduce(s: State, key: string): State {
       // Operazioni in fila si calcolano da sinistra a destra, come la calcolatrice standard di Windows.
       if (s.acc !== null && s.op && !s.fresh) {
         const n = apply(s.acc, s.op, value)
-        if (!Number.isFinite(n)) return { ...START, error: true, expr: `${show(s.acc)} ${s.op} ${show(value)}` }
+        if (!Number.isFinite(n)) return { ...CALC_START, error: true, expr: `${show(s.acc)} ${s.op} ${show(value)}` }
         return { ...s, acc: n, op, entry: String(n), expr: `${show(n)} ${op}`, fresh: true, repeat: null }
       }
       return { ...s, acc: value, op, expr: `${show(value)} ${op}`, fresh: true, repeat: null }
@@ -171,8 +171,8 @@ interface Props {
 
 /** Calcolatrice standard, sullo stile di quella di Windows, da usare dentro l'app. */
 export function Calculator({ initial, onClose, onUse, useLabel }: Props) {
-  const [state, setState] = useState<State>(() => (initial ? { ...START, entry: String(initial), fresh: true } : START))
-  const press = useCallback((key: string) => setState((s) => reduce(s, key)), [])
+  const [state, setState] = useState<State>(() => (initial ? { ...CALC_START, entry: String(initial), fresh: true } : CALC_START))
+  const press = useCallback((key: string) => setState((s) => calcReduce(s, key)), [])
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

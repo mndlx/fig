@@ -1,13 +1,15 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
-import { initAuth, signIn } from './auth'
+import { initAuth, isLocalOnly, setLocalOnly, signIn } from './auth'
 import { db } from './db'
 import { t } from './i18n'
 import { IconFig } from './icons'
 import { materializeRecurring } from './recurring'
 import { startSync } from './sync'
 import { applyTheme, readTheme } from './theme'
+import '@fontsource-variable/fraunces/opsz.css'
+import '@fontsource-variable/inter'
 import './styles.css'
 
 // In sviluppo niente service worker, altrimenti la cache nasconde le modifiche.
@@ -40,25 +42,67 @@ function Gate({ kind }: { kind: 'loading' | 'offline' | 'error' | 'server-down' 
   )
 }
 
+/** Primo avvio senza sessione: si sceglie se usare FIG solo su questo dispositivo o accedere. */
+function Welcome() {
+  return (
+    <div className="gate welcome">
+      <span className="wordmark big">
+        <IconFig />
+        fig
+      </span>
+      <p className="welcome-tagline">{t('welcome.tagline')}</p>
+      <div className="welcome-choices">
+        <button
+          className="primary wide"
+          onClick={() => {
+            setLocalOnly(true)
+            void boot()
+          }}
+        >
+          {t('welcome.local')}
+        </button>
+        <p className="muted small">{t('welcome.localHint')}</p>
+        <button className="secondary wide" onClick={signIn}>
+          {t('welcome.signIn')}
+        </button>
+        <p className="muted small">{t('welcome.signInHint')}</p>
+      </div>
+      <a className="welcome-privacy" href="/privacy.html">
+        {t('welcome.privacy')}
+      </a>
+    </div>
+  )
+}
+
 async function boot() {
   root.render(<Gate kind="loading" />)
   const auth = await initAuth()
+  const owner = await db.syncMeta.get('owner')
   let offline = false
+  let local = false
   if (auth.status === 'signed-in') {
+    // Accesso fatto: i dati usati senza account vengono caricati sul proprio archivio (vedi startSync).
+    setLocalOnly(false)
     await startSync(auth.user)
-  } else {
-    // Senza login si può usare l'app solo se su questo dispositivo c'è già il proprio archivio.
-    const owner = await db.syncMeta.get('owner')
-    if (auth.status !== 'offline' || !owner) return root.render(<Gate kind={auth.status} />)
+  } else if (owner) {
+    // Dispositivo già collegato a un account: sessione scaduta → si rientra; senza rete si usano i dati locali.
+    if (auth.status === 'signed-out') return signIn()
+    if (auth.status !== 'offline') return root.render(<Gate kind={auth.status} />)
     offline = true
+  } else if (isLocalOnly()) {
+    local = true
+  } else if (auth.status === 'signed-out') {
+    return root.render(<Welcome />)
+  } else {
+    return root.render(<Gate kind={auth.status} />)
   }
   // Scadenze delle serie ricorrenti fino a fine mese. Con l'accesso attivo le genera la sincronizzazione
   // dopo aver scaricato le novità (così un dispositivo rimasto indietro non sovrascrive modifiche fatte altrove);
-  // offline si generano subito dai dati locali.
-  if (offline) void materializeRecurring()
+  // offline e senza account si generano subito dai dati locali.
+  if (offline || local) void materializeRecurring()
   root.render(
     <StrictMode>
-      <App offline={offline} />
+      <App offline={offline} local={local} />
     </StrictMode>,
   )
 }

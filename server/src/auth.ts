@@ -215,22 +215,50 @@ export function authRouter(db: Db) {
     const sid = readCookie(req, COOKIE)
     const row = sid ? (takeSession.get(sid) as { id_token: string | null } | undefined) : undefined
     res.setHeader('Set-Cookie', sessionCookie('', 0))
-    let url = '/'
-    try {
-      const { meta } = await oidc()
-      if (meta.end_session_endpoint) {
-        const u = new URL(meta.end_session_endpoint)
-        u.search = new URLSearchParams({
-          client_id: config.clientId,
-          post_logout_redirect_uri: `${config.publicUrl}/`,
-          ...(row?.id_token ? { id_token_hint: row.id_token } : {}),
-        }).toString()
-        url = u.toString()
-      }
-    } catch {
-      /* senza discovery si esce solo dall'app */
-    }
-    res.json({ url })
+    res.json({ url: await logoutUrl(row?.id_token) })
+  })
+
+  return router
+}
+
+/** Indirizzo di uscita da Keycloak (chiude anche la sessione dell'identity provider); '/' se non disponibile. */
+async function logoutUrl(idToken?: string | null): Promise<string> {
+  if (config.authDisabled) return '/'
+  try {
+    const { meta } = await oidc()
+    if (!meta.end_session_endpoint) return '/'
+    const u = new URL(meta.end_session_endpoint)
+    u.search = new URLSearchParams({
+      client_id: config.clientId,
+      post_logout_redirect_uri: `${config.publicUrl}/`,
+      ...(idToken ? { id_token_hint: idToken } : {}),
+    }).toString()
+    return u.toString()
+  } catch {
+    // Senza discovery si esce solo dall'app.
+    return '/'
+  }
+}
+
+/**
+ * Cancellazione dell'account (va montato dopo requireAuth): elimina l'utente con tutti i suoi
+ * record e tutte le sessioni, su ogni dispositivo. L'account sull'identity provider non si tocca:
+ * lo gestisce Keycloak. Serve la conferma esplicita nel corpo della richiesta.
+ */
+export function accountRouter(db: Db) {
+  const router = Router()
+  const sessionToken = db.prepare(`SELECT id_token FROM sessions WHERE id = ?`)
+  const deleteUser = db.prepare(`DELETE FROM users WHERE id = ?`)
+
+  router.post('/account/delete', async (req, res) => {
+    if (req.body?.confirm !== true) return res.status(400).json({ error: 'confirm_required' })
+    const sid = readCookie(req, COOKIE)
+    const row = sid ? (sessionToken.get(sid) as { id_token: string | null } | undefined) : undefined
+    // Record e sessioni se ne vanno con l'utente (ON DELETE CASCADE).
+    deleteUser.run(req.user!.sub)
+    console.log('account deleted')
+    res.setHeader('Set-Cookie', sessionCookie('', 0))
+    res.json({ ok: true, url: await logoutUrl(row?.id_token) })
   })
 
   return router

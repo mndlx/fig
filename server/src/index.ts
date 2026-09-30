@@ -1,7 +1,7 @@
 import express from 'express'
 import fs from 'node:fs'
 import path from 'node:path'
-import { authRouter, checkClientSecret, requireAuth } from './auth.ts'
+import { accountRouter, authRouter, checkClientSecret, requireAuth } from './auth.ts'
 import { config } from './config.ts'
 import { openDb } from './db.ts'
 import { syncRouter } from './sync.ts'
@@ -17,7 +17,7 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, auth: config.authDisabled ? 'disabled' : config.issuer && config.clientSecret ? 'oidc' : 'not_configured' })
 })
 app.use('/auth', authRouter(db))
-app.use('/api', requireAuth(db), syncRouter(db))
+app.use('/api', requireAuth(db), syncRouter(db), accountRouter(db))
 app.use('/api', (_req, res) => res.status(404).json({ error: 'not_found' }))
 
 // In produzione lo stesso server distribuisce il frontend compilato.

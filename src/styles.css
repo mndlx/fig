@@ -14,8 +14,8 @@
   /* Testo nel colore del marchio: prugna in chiaro, rosa in scuro. */
   --brand-text: #5e2b4f;
   --leaf: #6f8f5e;
-  --serif: 'Fraunces', Georgia, serif;
-  --sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --serif: 'Fraunces Variable', 'Fraunces', Georgia, serif;
+  --sans: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
   --shadow: 0 1px 2px rgba(30, 26, 23, 0.04), 0 8px 24px rgba(30, 26, 23, 0.06);
   color-scheme: light;
 }
@@ -2998,4 +2998,55 @@ button.hero-account:active {
   content: '▾';
   margin-right: 2px;
   opacity: 0.7;
+}
+
+/* Benvenuto: FIG senza account o con accesso */
+.welcome {
+  max-width: 420px;
+  margin: 0 auto;
+}
+.welcome-tagline {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.45;
+}
+.welcome-choices {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+.welcome-choices .muted {
+  margin: 0 0 12px;
+}
+.secondary.wide {
+  width: 100%;
+  padding: 14px;
+}
+.welcome-privacy {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Impostazioni: profilo senza account e cancellazioni */
+.local-profile {
+  gap: 12px;
+}
+.danger-card {
+  margin-top: 12px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 40%, transparent);
+}
+button.danger {
+  background: var(--danger);
+  color: #fff;
+  padding: 10px 16px;
+  border-radius: 14px;
+  font-weight: 500;
+}
+button.danger:disabled {
+  opacity: 0.5;
+}
+.settings-foot a {
+  color: inherit;
 }

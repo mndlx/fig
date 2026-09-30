@@ -7,7 +7,9 @@ import {
   IconDatabaseExport,
   IconFileImport,
   IconFileSpreadsheet,
+  IconLogin,
   IconLogout,
+  IconTrash,
   IconRefresh,
   IconRepeat,
   IconRestore,
@@ -26,7 +28,7 @@ import { deleteSeries, updateSeries } from './recurring'
 import { builtinName, dateFmt, numberToInput, t, type Key, type LangSetting } from './i18n'
 import { IconLeft } from './icons'
 import { ImportCsv } from './ImportCsv'
-import { authEnabled, currentUser, signOut } from './auth'
+import { authEnabled, currentUser, deleteAccount, setLocalOnly, signIn, signOut } from './auth'
 import { clearLocalData, getSyncStatus, syncNow, useSyncStatus } from './sync'
 import { convertMinor, fetchRate, formatMoney, fromMinor, parseTyped } from './money'
 import { readTheme, writeTheme, type Theme } from './theme'
@@ -47,6 +49,8 @@ type View =
 interface Props {
   data: AppData
   offline: boolean
+  /** FIG senza account: dati solo su questo dispositivo. */
+  local: boolean
   langSetting: LangSetting
   onLangChange: (setting: LangSetting) => void
   onBack: () => void
@@ -95,7 +99,7 @@ function Segmented<T extends string>({ value, options, onChange, label }: { valu
   )
 }
 
-export function Settings({ data, offline, langSetting, onLangChange, onBack }: Props) {
+export function Settings({ data, offline, local, langSetting, onLangChange, onBack }: Props) {
   const [view, setView] = useState<View>({ type: 'main' })
   const main = () => setView({ type: 'main' })
 
@@ -121,13 +125,14 @@ export function Settings({ data, offline, langSetting, onLangChange, onBack }: P
     case 'import':
       return <ImportCsv data={data} onDone={main} />
     default:
-      return <SettingsMain data={data} offline={offline} langSetting={langSetting} onLangChange={onLangChange} onBack={onBack} go={setView} />
+      return <SettingsMain data={data} offline={offline} local={local} langSetting={langSetting} onLangChange={onLangChange} onBack={onBack} go={setView} />
   }
 }
 
 function SettingsMain({
   data,
   offline,
+  local,
   langSetting,
   onLangChange,
   onBack,
@@ -135,6 +140,7 @@ function SettingsMain({
 }: {
   data: AppData
   offline: boolean
+  local: boolean
   langSetting: LangSetting
   onLangChange: (s: LangSetting) => void
   onBack: () => void
@@ -169,7 +175,7 @@ function SettingsMain({
     <>
       <Header title={t('set.title')} onBack={onBack} />
 
-      <ProfileCard offline={offline} />
+      <ProfileCard offline={offline} local={local} />
 
       <p className="section-title">{t('set.money')}</p>
       <div className="list">
@@ -244,18 +250,38 @@ function SettingsMain({
         </div>
       )}
       {message && <p className="note-box">{message}</p>}
-      <p className="note-box">{t('set.localNote')}</p>
+      <p className="note-box">{local ? t('set.localOnlyNote') : t('set.localNote')}</p>
 
-      {authEnabled() && !offline && <SignOut />}
-      <p className="settings-foot">FIG · fig.vlabstudio.net</p>
+      {authEnabled() && !offline && !local && <SignOut />}
+      {local ? <DeleteLocal /> : authEnabled() && !offline && <DeleteAccount />}
+      <p className="settings-foot">
+        FIG · <a href="/privacy.html">{t('welcome.privacy')}</a>
+      </p>
     </>
   )
 }
 
 /** In cima: chi sei e lo stato della sincronizzazione. */
-function ProfileCard({ offline }: { offline: boolean }) {
+function ProfileCard({ offline, local }: { offline: boolean; local: boolean }) {
   const status = useSyncStatus()
   const user = currentUser()
+
+  // Senza account: i dati sono solo qui; si può accedere per caricarli e sincronizzarli.
+  if (local)
+    return (
+      <div className="card profile local-profile">
+        <span className="grow">
+          <span className="profile-name">{t('sync.localOnly')}</span>
+          <span className="muted small" style={{ display: 'block' }}>
+            {t('set.signInToSyncHint')}
+          </span>
+        </span>
+        <button className="primary slim" onClick={signIn}>
+          <IconLogin size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} />
+          {t('welcome.signIn')}
+        </button>
+      </div>
+    )
 
   if (!authEnabled())
     return (
@@ -330,6 +356,86 @@ function SignOut() {
         </div>
       )}
     </>
+  )
+}
+
+/** Riga di pericolo con conferma: usata per cancellare l'account o i dati del dispositivo. */
+function DangerZone({ label, warn, confirmLabel, onConfirm }: { label: string; warn: string; confirmLabel: string; onConfirm: () => Promise<void> }) {
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function confirm() {
+    setBusy(true)
+    setError('')
+    try {
+      await onConfirm()
+    } catch {
+      setError(t('set.deleteErr'))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="list" style={{ marginTop: 12 }}>
+        <button className="list-row menu-row danger-text" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+          <span className="menu-icon danger">
+            <IconTrash size={18} />
+          </span>
+          <span className="grow">{label}</span>
+        </button>
+      </div>
+      {open && (
+        <div className="card danger-card" role="alertdialog" aria-label={label}>
+          <p style={{ margin: '0 0 12px' }}>{warn}</p>
+          <div className="form-actions">
+            <button className="secondary" onClick={() => exportJson()}>
+              {t('set.backup')}
+            </button>
+            <button className="danger" disabled={busy} onClick={confirm}>
+              {confirmLabel}
+            </button>
+          </div>
+          <button className="link-btn" style={{ marginTop: 10 }} onClick={() => setOpen(false)}>
+            {t('common.cancel')}
+          </button>
+          {error && <p className="error">{error}</p>}
+        </div>
+      )}
+    </>
+  )
+}
+
+/** Cancellazione dell'account: tutti i dati sul server (su ogni dispositivo) e su questo dispositivo. */
+function DeleteAccount() {
+  return (
+    <DangerZone
+      label={t('set.deleteAccount')}
+      warn={t('set.deleteAccountWarn')}
+      confirmLabel={t('set.deleteAccountConfirm')}
+      onConfirm={async () => {
+        const url = await deleteAccount()
+        await clearLocalData()
+        location.href = url
+      }}
+    />
+  )
+}
+
+/** Senza account: si cancella tutto ciò che è salvato su questo dispositivo e si torna alla schermata iniziale. */
+function DeleteLocal() {
+  return (
+    <DangerZone
+      label={t('set.deleteLocal')}
+      warn={t('set.deleteLocalWarn')}
+      confirmLabel={t('set.deleteLocalConfirm')}
+      onConfirm={async () => {
+        await clearLocalData()
+        setLocalOnly(false)
+        location.href = '/'
+      }}
+    />
   )
 }
 

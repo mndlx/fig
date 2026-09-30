@@ -1,0 +1,67 @@
+/* Pagine pubbliche (privacy, eliminazione account): leggibili senza caricare l'app. */
+:root {
+  --bg: #f4efe6;
+  --ink: #1e1a17;
+  --muted: #6f675f;
+  --line: rgba(30, 26, 23, 0.12);
+  --brand: #6b2f4f;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14111a;
+    --ink: #efe9e1;
+    --muted: #a59d95;
+    --line: rgba(239, 233, 225, 0.12);
+    --brand: #d9a3c0;
+  }
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.6 system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
+}
+a {
+  color: var(--brand);
+}
+.brand {
+  margin: 0;
+  font: 500 28px/1 Georgia, serif;
+}
+.brand a {
+  text-decoration: none;
+}
+.lang {
+  margin: 8px 0 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+article {
+  padding-top: 16px;
+}
+article + article {
+  margin-top: 40px;
+  border-top: 1px solid var(--line);
+}
+h1 {
+  font: 500 30px/1.2 Georgia, serif;
+  margin: 8px 0;
+}
+h2 {
+  font-size: 18px;
+  margin: 28px 0 6px;
+}
+.updated {
+  color: var(--muted);
+  font-size: 14px;
+  margin-top: 0;
+}
+li {
+  margin: 4px 0;
+}

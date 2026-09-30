@@ -47,6 +47,24 @@ npm run dev
 
 Il frontend (http://localhost:5174, porta registrata su Keycloak) inoltra `/api` e `/auth` al server (porta 8787).
 
+### Test
+
+```bash
+npm test
+```
+
+```bash
+npm --prefix server test
+```
+
+Il primo (vitest) copre i calcoli dell'app: importi e valute, CSV, ricorrenze, saldi, gomitoli, previsione di fine mese, calcolatrice. Il secondo (node:test) prova le API con sessioni vere su un database in memoria: accesso, isolamento tra utenti, sincronizzazione, cancellazione dell'account.
+
+### Account e privacy
+
+- Senza sessione l'app chiede se usarla **senza account** (dati solo nel browser, flag `fig-local` in localStorage) o accedere. Accedendo più tardi, i dati locali vengono caricati sull'account alla prima sincronizzazione.
+- **Elimina account** (Impostazioni) chiama `POST /api/account/delete` con `{ "confirm": true }`: il server cancella utente, record e sessioni. L'utente su Keycloak non viene toccato.
+- Pagine pubbliche in `public/`: `privacy.html` e `delete-account.html` (richieste dal Play Store). I caratteri sono serviti dall'app (Fontsource), senza Google Fonts.
+
 ### Configurazione (.env)
 
 Tutta la configurazione sta nel server; il frontend non ne ha. Copia `server/.env.example` in:
@@ -79,6 +97,12 @@ In Keycloak, client `fig` (Client authentication: On):
 
 ```cron
 30 3 * * * /opt/fig/scripts/backup.sh >> /var/log/fig-backup.log 2>&1
+```
+
+Copia fuori dalla VPS: `scripts/pull-backups.sh` (dal PC, con Git Bash) scarica via SSH solo le copie nuove in `~/FIG-backups`, le verifica e ne tiene 90.
+
+```bash
+bash scripts/pull-backups.sh
 ```
 
 Ripristino di una copia (sostituisce i dati attuali: prima fai un backup a mano con lo script):

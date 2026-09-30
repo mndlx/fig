@@ -1,6 +1,6 @@
 // Service worker di FIG: tiene in cache l'app così si apre anche offline.
 // I dati non passano di qui: stanno in IndexedDB.
-const CACHE = 'fig-v3'
+const CACHE = 'fig-v4'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(['/', '/manifest.webmanifest', '/favicon.svg'])))
@@ -21,6 +21,9 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET' || url.origin !== self.location.origin) return
   // API e login non passano mai dalla cache.
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/auth/')) return
+
+  // Pagine pubbliche separate (privacy, eliminazione account): sempre dalla rete, mai al posto dell'app.
+  if (url.pathname.endsWith('.html')) return
 
   if (request.mode === 'navigate') {
     // Pagina: prima la rete (per gli aggiornamenti), poi la copia in cache.
