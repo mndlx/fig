@@ -9,6 +9,8 @@ export interface User {
   sub: string
   name?: string
   email?: string
+  /** Pagina del servizio di identità dove si modificano nome, cognome, email e password. */
+  accountUrl?: string
 }
 
 export type AuthState =
@@ -60,7 +62,7 @@ export async function initAuth(): Promise<AuthState> {
   if (!res.ok) return { status: 'error' }
   const me = (await res.json()) as User & { auth?: 'oidc' | 'disabled' }
   mode = me.auth ?? 'oidc'
-  user = { sub: me.sub, name: me.name, email: me.email }
+  user = { sub: me.sub, name: me.name, email: me.email, accountUrl: me.accountUrl || undefined }
   return { status: 'signed-in', user }
 }
 

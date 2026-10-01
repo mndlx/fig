@@ -34,6 +34,10 @@ export const config = {
   authDisabled: process.env.AUTH_DISABLED === '1',
   /** Cartella del frontend compilato, servita insieme alle API. */
   staticDir: path.resolve(process.env.STATIC_DIR ?? '../dist'),
+  /** Pagina di Keycloak dove l'utente modifica nome, cognome, email e password; torna a FIG a modifica fatta. */
+  accountUrl: process.env.OIDC_ISSUER
+    ? `${process.env.OIDC_ISSUER.replace(/\/$/, '')}/account/?referrer=${encodeURIComponent(process.env.OIDC_CLIENT_ID ?? 'fig')}&referrer_uri=${encodeURIComponent(publicUrl + '/')}`
+    : '',
   /** Uso di FIG senza account (dati solo nel browser). Spento finché LOCAL_MODE non vale 1. */
   localMode: process.env.LOCAL_MODE === '1',
   /** App Android (Trusted Web Activity): pacchetto e impronte SHA-256 dei certificati di firma, separate da virgola. */

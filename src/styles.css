@@ -3090,3 +3090,82 @@ button.danger:disabled {
     animation: none;
   }
 }
+
+/* Categorie: riordino con trascinamento */
+.drag-handle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: -8px -8px -8px 0;
+  color: var(--muted);
+  cursor: grab;
+  /* Il dito sulla maniglia trascina la riga invece di scorrere la pagina. */
+  touch-action: none;
+  border-radius: 12px;
+}
+.drag-handle:active {
+  cursor: grabbing;
+}
+.drag-handle:focus-visible {
+  outline: 2px solid var(--brand-text);
+}
+.list.sortable .list-row {
+  position: relative;
+}
+.list.sorting .list-row {
+  transition: transform 0.16s ease;
+}
+.list.sorting .list-row.dragging {
+  transition: none;
+  z-index: 2;
+  background: var(--surface);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18), inset 0 0 0 1.5px color-mix(in srgb, var(--c) 60%, transparent);
+}
+.list.sorting {
+  user-select: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .list.sorting .list-row {
+    transition: none;
+  }
+}
+
+/* Profilo */
+.profile-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+}
+.profile-head {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 16px;
+}
+.avatar.huge {
+  width: 84px;
+  height: 84px;
+  font-size: 34px;
+}
+.profile-field {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.profile-value {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+a.profile-edit {
+  display: block;
+  margin-top: 14px;
+  text-align: center;
+  text-decoration: none;
+  box-sizing: border-box;
+}

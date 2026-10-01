@@ -1,5 +1,5 @@
 import {
-  IconArrowsSort,
+  IconGripVertical,
   IconCategory,
   IconChevronRight,
   IconCloudUpload,
@@ -23,6 +23,7 @@ import { CATEGORY_ICONS, CategoryIcon } from './catIcons'
 import { accountBalance, type AppData } from './data'
 import { db, openingId, WOOL, type Account, type Category, type Frequency, type Recurring } from './db'
 import { saveOpening } from './opening'
+import { dropIndex, moveItem, reorder } from './reorder'
 import { Reconcile } from './Reconcile'
 import { deleteSeries, updateSeries } from './recurring'
 import { builtinName, dateFmt, numberToInput, t, type Key, type LangSetting } from './i18n'
@@ -45,6 +46,7 @@ type View =
   | { type: 'currency' }
   | { type: 'main-currency'; code: string }
   | { type: 'import' }
+  | { type: 'profile' }
 
 interface Props {
   data: AppData
@@ -124,6 +126,8 @@ export function Settings({ data, offline, local, langSetting, onLangChange, onBa
       return <MainCurrencyForm data={data} code={view.code} onDone={() => setView({ type: 'currencies' })} />
     case 'import':
       return <ImportCsv data={data} onDone={main} />
+    case 'profile':
+      return <ProfilePage onBack={main} />
     default:
       return <SettingsMain data={data} offline={offline} local={local} langSetting={langSetting} onLangChange={onLangChange} onBack={onBack} go={setView} />
   }
@@ -175,7 +179,7 @@ function SettingsMain({
     <>
       <Header title={t('set.title')} onBack={onBack} />
 
-      <ProfileCard offline={offline} local={local} />
+      <ProfileCard offline={offline} local={local} onOpen={() => go({ type: 'profile' })} />
 
       <p className="section-title">{t('set.money')}</p>
       <div className="list">
@@ -252,8 +256,7 @@ function SettingsMain({
       {message && <p className="note-box">{message}</p>}
       <p className="note-box">{local ? t('set.localOnlyNote') : t('set.localNote')}</p>
 
-      {authEnabled() && !offline && !local && <SignOut />}
-      {local ? <DeleteLocal /> : authEnabled() && !offline && <DeleteAccount />}
+      {local && <DeleteLocal />}
       <p className="settings-foot">
         FIG · <a href="/privacy.html">{t('welcome.privacy')}</a>
       </p>
@@ -262,7 +265,7 @@ function SettingsMain({
 }
 
 /** In cima: chi sei e lo stato della sincronizzazione. */
-function ProfileCard({ offline, local }: { offline: boolean; local: boolean }) {
+function ProfileCard({ offline, local, onOpen }: { offline: boolean; local: boolean; onOpen: () => void }) {
   const status = useSyncStatus()
   const user = currentUser()
 
@@ -300,21 +303,75 @@ function ProfileCard({ offline, local }: { offline: boolean; local: boolean }) {
 
   return (
     <div className="card profile">
-      <span className="avatar big">{(user?.name ?? user?.email ?? '?').slice(0, 1).toUpperCase()}</span>
-      <span className="grow">
-        <span className="profile-name">{user?.name ?? user?.email}</span>
-        {user?.name && user.email && <span className="muted small" style={{ display: 'block' }}>{user.email}</span>}
-        <span className="profile-sync">
-          <span className={`sync-dot ${offline ? 'offline' : status.state}`} />
-          {text}
+      {/* Avatar e nome aprono il profilo: dati personali, uscita, eliminazione dell'account. */}
+      <button className="profile-open" onClick={onOpen} aria-label={t('profile.title')}>
+        <span className="avatar big">{(user?.name ?? user?.email ?? '?').slice(0, 1).toUpperCase()}</span>
+        <span className="grow">
+          <span className="profile-name">
+            {user?.name ?? user?.email}
+            <IconChevronRight size={16} className="menu-chevron" style={{ verticalAlign: '-2px', marginLeft: 2 }} />
+          </span>
+          {user?.name && user.email && <span className="muted small" style={{ display: 'block' }}>{user.email}</span>}
+          <span className="profile-sync">
+            <span className={`sync-dot ${offline ? 'offline' : status.state}`} />
+            {text}
+          </span>
         </span>
-      </span>
+      </button>
       {!offline && (
         <button className={`icon-btn sync-btn${status.state === 'syncing' ? ' spinning' : ''}`} aria-label={t('set.syncNow')} onClick={() => syncNow()}>
           {status.state === 'syncing' ? <IconCloudUpload size={20} /> : <IconRefresh size={20} />}
         </button>
       )}
     </div>
+  )
+}
+
+/**
+ * Profilo: nome, cognome ed email come li conosce il servizio di identità. Si modificano lì
+ * (è l'unico che può cambiarli, email compresa); al ritorno "Aggiorna" li ricarica rifacendo
+ * l'accesso, che con la sessione ancora attiva è immediato.
+ */
+function ProfilePage({ onBack }: { onBack: () => void }) {
+  const user = currentUser()
+  const online = useSyncStatus().state !== 'offline'
+  const parts = (user?.name ?? '').trim().split(/\s+/).filter(Boolean)
+  const first = parts.length > 1 ? parts.slice(0, -1).join(' ') : (parts[0] ?? '')
+  const last = parts.length > 1 ? parts[parts.length - 1] : ''
+  const field = (label: string, value?: string) => (
+    <div className="list-row profile-field">
+      <span className="muted small">{label}</span>
+      <span className="grow profile-value">{value || t('goals.none')}</span>
+    </div>
+  )
+  return (
+    <>
+      <Header title={t('profile.title')} onBack={onBack} />
+      <div className="profile-head">
+        <span className="avatar huge">{(user?.name ?? user?.email ?? '?').slice(0, 1).toUpperCase()}</span>
+      </div>
+      <div className="list">
+        {field(t('profile.firstName'), first)}
+        {field(t('profile.lastName'), last)}
+        {field(t('profile.email'), user?.email)}
+      </div>
+      {authEnabled() && user?.accountUrl ? (
+        <>
+          <a className="primary wide profile-edit" href={user.accountUrl} target="_blank" rel="noopener">
+            {t('profile.edit')}
+          </a>
+          <button className="secondary wide" style={{ marginTop: 8 }} disabled={!online} onClick={signIn}>
+            <IconRefresh size={16} style={{ verticalAlign: '-3px', marginRight: 6 }} />
+            {t('profile.refresh')}
+          </button>
+          <p className="note-box">{t('profile.note')}</p>
+        </>
+      ) : (
+        <p className="note-box">{t('sync.localMode')}</p>
+      )}
+      {authEnabled() && <SignOut />}
+      {authEnabled() && <DeleteAccount />}
+    </>
   )
 }
 
@@ -441,33 +498,67 @@ function DeleteLocal() {
 
 function CategoriesPage({ data, onBack, go }: { data: AppData; onBack: () => void; go: (v: View) => void }) {
   const [kind, setKind] = useState<Category['kind']>('expense')
-  const [reorder, setReorder] = useState(false)
-  const list = data.categories.filter((c) => c.kind === kind).sort((a, b) => a.order - b.order)
+  const sorted = data.categories.filter((c) => c.kind === kind).sort((a, b) => a.order - b.order)
+  // Trascinamento in corso: riga presa, spostamento in pixel e passo tra una riga e l'altra.
+  const [drag, setDrag] = useState<{ id: string; from: number; dy: number; step: number } | null>(null)
+  // Ordine appena rilasciato, mostrato subito in attesa che il database confermi (niente scatto all'indietro).
+  const [pending, setPending] = useState<string[] | null>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  const startY = useRef(0)
+  useEffect(() => setPending(null), [data.categories])
+  const list = pending ? [...sorted].sort((a, b) => pending.indexOf(a.id) - pending.indexOf(b.id)) : sorted
   const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime()
   const uses = new Map<string, number>()
   for (const tx of data.transactions) if (tx.categoryId && tx.date >= monthStart) uses.set(tx.categoryId, (uses.get(tx.categoryId) ?? 0) + 1)
 
-  async function move(index: number, dir: -1 | 1) {
-    const other = list[index + dir]
-    if (!other) return
-    const a = list[index]
-    await db.categories.bulkPut([
-      { ...a, order: other.order },
-      { ...other, order: a.order },
-    ])
+  async function move(from: number, to: number) {
+    if (to === from || to < 0 || to >= list.length) return
+    setPending(moveItem(list, from, to).map((c) => c.id))
+    await db.categories.bulkPut(reorder(list, from, to))
+  }
+
+  function onGrab(e: React.PointerEvent<HTMLButtonElement>, index: number, id: string) {
+    const rows = listRef.current?.querySelectorAll<HTMLElement>('.list-row')
+    if (!rows || rows.length === 0) return
+    // Passo: distanza tra due righe vicine (altezza più eventuale spazio).
+    const step = rows.length > 1 ? rows[1].getBoundingClientRect().top - rows[0].getBoundingClientRect().top : rows[0].offsetHeight
+    startY.current = e.clientY
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    } catch {
+      // Alcuni browser non permettono la cattura: il trascinamento funziona comunque finché si resta sulla maniglia.
+    }
+    setDrag({ id, from: index, dy: 0, step })
+  }
+
+  function onDragMove(e: React.PointerEvent) {
+    if (!drag) return
+    // La riga non esce dalla lista.
+    const min = -drag.from * drag.step
+    const max = (list.length - 1 - drag.from) * drag.step
+    setDrag({ ...drag, dy: Math.max(min, Math.min(max, e.clientY - startY.current)) })
+  }
+
+  function onDrop() {
+    if (!drag) return
+    const to = dropIndex(drag.from, drag.dy, drag.step, list.length)
+    setDrag(null)
+    void move(drag.from, to)
+  }
+
+  const dropAt = drag ? dropIndex(drag.from, drag.dy, drag.step, list.length) : -1
+  /** Spostamento visivo di una riga mentre un'altra viene trascinata sopra o sotto di lei. */
+  function shift(index: number, id: string): CSSProperties | undefined {
+    if (!drag) return undefined
+    if (id === drag.id) return { transform: `translateY(${drag.dy}px)` }
+    if (drag.from < dropAt && index > drag.from && index <= dropAt) return { transform: `translateY(${-drag.step}px)` }
+    if (drag.from > dropAt && index >= dropAt && index < drag.from) return { transform: `translateY(${drag.step}px)` }
+    return undefined
   }
 
   return (
     <>
-      <Header
-        title={t('set.categories')}
-        onBack={onBack}
-        action={
-          <button className={`icon-btn${reorder ? ' active' : ''}`} aria-label={t('set.reorder')} aria-pressed={reorder} onClick={() => setReorder((v) => !v)}>
-            <IconArrowsSort size={20} />
-          </button>
-        }
-      />
+      <Header title={t('set.categories')} onBack={onBack} />
       <Segmented
         label={t('set.categories')}
         value={kind}
@@ -477,12 +568,15 @@ function CategoriesPage({ data, onBack, go }: { data: AppData; onBack: () => voi
           ['income', t('set.incomes')],
         ]}
       />
-      <div className="list" style={{ marginTop: 14 }}>
+      <p className="muted small" style={{ margin: '12px 2px 0' }}>
+        {t('set.dragHint')}
+      </p>
+      <div ref={listRef} className={`list sortable${drag ? ' sorting' : ''}`} style={{ marginTop: 8 }}>
         {list.map((c, i) => {
           const name = builtinName(c, 'cat')
           const n = uses.get(c.id) ?? 0
           return (
-            <div key={c.id} className={`list-row${c.archived ? ' archived' : ''}`}>
+            <div key={c.id} className={`list-row${c.archived ? ' archived' : ''}${drag?.id === c.id ? ' dragging' : ''}`} style={{ ...shift(i, c.id), '--c': c.color } as CSSProperties}>
               <span className="row-icon" style={{ '--c': c.color } as CSSProperties}>
                 <CategoryIcon name={c.icon} size={18} />
               </span>
@@ -494,18 +588,21 @@ function CategoriesPage({ data, onBack, go }: { data: AppData; onBack: () => voi
                   n > 0 && <span className="muted small" style={{ display: 'block' }}>{t('set.usesThisMonth', { n })}</span>
                 )}
               </button>
-              {reorder ? (
-                <>
-                  <button className="tiny-btn" aria-label={t('set.moveUp', { name })} onClick={() => move(i, -1)} disabled={i === 0}>
-                    ↑
-                  </button>
-                  <button className="tiny-btn" aria-label={t('set.moveDown', { name })} onClick={() => move(i, 1)} disabled={i === list.length - 1}>
-                    ↓
-                  </button>
-                </>
-              ) : (
-                <IconChevronRight size={18} className="menu-chevron" />
-              )}
+              <button
+                className="drag-handle"
+                aria-label={t('set.dragHandle', { name })}
+                onPointerDown={(e) => onGrab(e, i, c.id)}
+                onPointerMove={onDragMove}
+                onPointerUp={onDrop}
+                onPointerCancel={() => setDrag(null)}
+                onKeyDown={(e) => {
+                  // Senza trascinare: frecce su e giù sulla maniglia.
+                  if (e.key === 'ArrowUp') (e.preventDefault(), void move(i, i - 1))
+                  if (e.key === 'ArrowDown') (e.preventDefault(), void move(i, i + 1))
+                }}
+              >
+                <IconGripVertical size={20} />
+              </button>
             </div>
           )
         })}
