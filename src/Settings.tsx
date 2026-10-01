@@ -328,6 +328,16 @@ function ProfileCard({ offline, local, onOpen }: { offline: boolean; local: bool
 }
 
 /**
+ * Nome e cognome da mostrare: quelli separati del servizio di identità quando ci sono;
+ * altrimenti (sessioni aperte prima che venissero salvati) si divide il nome completo all'ultima parola.
+ */
+export function splitName(user: { name?: string; givenName?: string; familyName?: string } | null): { first: string; last: string } {
+  if (user?.givenName || user?.familyName) return { first: user.givenName ?? '', last: user.familyName ?? '' }
+  const parts = (user?.name ?? '').trim().split(/\s+/).filter(Boolean)
+  return parts.length > 1 ? { first: parts.slice(0, -1).join(' '), last: parts[parts.length - 1] } : { first: parts[0] ?? '', last: '' }
+}
+
+/**
  * Profilo: nome, cognome ed email come li conosce il servizio di identità. Si modificano lì
  * (è l'unico che può cambiarli, email compresa); al ritorno "Aggiorna" li ricarica rifacendo
  * l'accesso, che con la sessione ancora attiva è immediato.
@@ -335,9 +345,7 @@ function ProfileCard({ offline, local, onOpen }: { offline: boolean; local: bool
 function ProfilePage({ onBack }: { onBack: () => void }) {
   const user = currentUser()
   const online = useSyncStatus().state !== 'offline'
-  const parts = (user?.name ?? '').trim().split(/\s+/).filter(Boolean)
-  const first = parts.length > 1 ? parts.slice(0, -1).join(' ') : (parts[0] ?? '')
-  const last = parts.length > 1 ? parts[parts.length - 1] : ''
+  const { first, last } = splitName(user)
   const field = (label: string, value?: string) => (
     <div className="list-row profile-field">
       <span className="muted small">{label}</span>

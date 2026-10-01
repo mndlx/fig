@@ -8,6 +8,9 @@
 export interface User {
   sub: string
   name?: string
+  /** Nome e cognome separati, se il servizio di identità li fornisce (dal primo accesso dopo l'aggiornamento). */
+  givenName?: string
+  familyName?: string
   email?: string
   /** Pagina del servizio di identità dove si modificano nome, cognome, email e password. */
   accountUrl?: string
@@ -62,7 +65,7 @@ export async function initAuth(): Promise<AuthState> {
   if (!res.ok) return { status: 'error' }
   const me = (await res.json()) as User & { auth?: 'oidc' | 'disabled' }
   mode = me.auth ?? 'oidc'
-  user = { sub: me.sub, name: me.name, email: me.email, accountUrl: me.accountUrl || undefined }
+  user = { sub: me.sub, name: me.name, givenName: me.givenName, familyName: me.familyName, email: me.email, accountUrl: me.accountUrl || undefined }
   return { status: 'signed-in', user }
 }
 

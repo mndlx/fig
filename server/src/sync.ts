@@ -44,7 +44,15 @@ export function syncRouter(db: Db) {
   router.get('/me', (req, res) => {
     const user = req.user!
     touchUser.run({ id: user.sub, email: user.email ?? null, name: user.name ?? null, now: Date.now() })
-    res.json({ sub: user.sub, email: user.email, name: user.name, auth: config.authDisabled ? 'disabled' : 'oidc', accountUrl: config.accountUrl })
+    res.json({
+      sub: user.sub,
+      email: user.email,
+      name: user.name,
+      givenName: user.givenName,
+      familyName: user.familyName,
+      auth: config.authDisabled ? 'disabled' : 'oidc',
+      accountUrl: config.accountUrl,
+    })
   })
 
   /**

@@ -51,6 +51,11 @@ const MIGRATIONS = [
     created_at  INTEGER NOT NULL
   );
   `,
+  `
+  -- Nome e cognome separati, come li fornisce il servizio di identità (given_name, family_name).
+  ALTER TABLE users ADD COLUMN given_name TEXT;
+  ALTER TABLE users ADD COLUMN family_name TEXT;
+  `,
 ]
 
 export function openDb(file: string) {

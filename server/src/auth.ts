@@ -14,6 +14,8 @@ export interface AuthUser {
   sub: string
   email?: string
   name?: string
+  givenName?: string
+  familyName?: string
 }
 
 declare module 'express-serve-static-core' {
@@ -121,8 +123,8 @@ export function authRouter(db: Db) {
   const takeState = db.prepare(`DELETE FROM login_states WHERE state = ? RETURNING verifier, nonce, return_to, created_at`)
   const purgeStates = db.prepare(`DELETE FROM login_states WHERE created_at < ?`)
   const upsertUser = db.prepare(`
-    INSERT INTO users (id, email, name, rev, created_at, last_seen) VALUES (@id, @email, @name, 0, @now, @now)
-    ON CONFLICT(id) DO UPDATE SET email = COALESCE(@email, email), name = COALESCE(@name, name), last_seen = @now
+    INSERT INTO users (id, email, name, given_name, family_name, rev, created_at, last_seen) VALUES (@id, @email, @name, @given, @family, 0, @now, @now)
+    ON CONFLICT(id) DO UPDATE SET email = COALESCE(@email, email), name = COALESCE(@name, name), given_name = @given, family_name = @family, last_seen = @now
   `)
   const createSession = db.prepare(`INSERT INTO sessions (id, user_id, id_token, created_at, expires_at) VALUES (?, ?, ?, ?, ?)`)
   const takeSession = db.prepare(`DELETE FROM sessions WHERE id = ? RETURNING id_token`)
@@ -198,6 +200,9 @@ export function authRouter(db: Db) {
         id: payload.sub,
         email: typeof payload.email === 'string' ? payload.email : null,
         name: typeof payload.name === 'string' ? payload.name : typeof payload.preferred_username === 'string' ? payload.preferred_username : null,
+        // A ogni accesso valgono quelli attuali: se sono stati tolti dal profilo, qui tornano vuoti.
+        given: typeof payload.given_name === 'string' && payload.given_name ? payload.given_name : null,
+        family: typeof payload.family_name === 'string' && payload.family_name ? payload.family_name : null,
         now,
       })
       const sessionId = random()
@@ -267,7 +272,7 @@ export function accountRouter(db: Db) {
 /** Protegge le API: serve una sessione valida; la scadenza si rinnova a ogni utilizzo. */
 export function requireAuth(db: Db) {
   const findSession = db.prepare(`
-    SELECT s.user_id, u.email, u.name FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ? AND s.expires_at > ?
+    SELECT s.user_id, u.email, u.name, u.given_name, u.family_name FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ? AND s.expires_at > ?
   `)
   const extend = db.prepare(`UPDATE sessions SET expires_at = ? WHERE id = ?`)
   const ensureDevUser = db.prepare(`
@@ -284,12 +289,18 @@ export function requireAuth(db: Db) {
       return next()
     }
     const sid = readCookie(req, COOKIE)
-    const row = sid ? (findSession.get(sid, Date.now()) as { user_id: string; email: string | null; name: string | null } | undefined) : undefined
+    const row = sid ? (findSession.get(sid, Date.now()) as { user_id: string; email: string | null; name: string | null; given_name: string | null; family_name: string | null } | undefined) : undefined
     if (!row) return res.status(401).json({ error: 'not_signed_in' })
     extend.run(Date.now() + config.sessionDays * 86_400_000, sid)
     // Anche il cookie si rinnova, altrimenti scadrebbe comunque dopo SESSION_DAYS dal login.
     res.setHeader('Set-Cookie', sessionCookie(sid!, config.sessionDays * 86_400))
-    req.user = { sub: row.user_id, email: row.email ?? undefined, name: row.name ?? undefined }
+    req.user = {
+      sub: row.user_id,
+      email: row.email ?? undefined,
+      name: row.name ?? undefined,
+      givenName: row.given_name ?? undefined,
+      familyName: row.family_name ?? undefined,
+    }
     next()
   }
 }
