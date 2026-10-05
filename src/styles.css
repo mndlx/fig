@@ -3169,3 +3169,11 @@ a.profile-edit {
   text-decoration: none;
   box-sizing: border-box;
 }
+
+/* Inserimento: la X di chiusura resta sopra le schede (prima il tocco finiva sulla scheda sotto) */
+.sheet.add .handle-zone {
+  z-index: 3;
+}
+.sheet.add .handle-zone .close {
+  z-index: 3;
+}

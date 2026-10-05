@@ -131,6 +131,8 @@ export function ThreadView(props: Props) {
   const { startBalance, monthTx, forecast, forecastInfo, mainCurrency, currencies, categories, accounts, goals, freshId } = props
   const [dayState, setDayState] = useState<Record<string, boolean>>(loadDays)
   const [infoOpen, setInfoOpen] = useState(false)
+  // Movimento appena salvato il cui giorno è stato richiuso a mano: da lì in poi non si riapre da solo.
+  const [freshDismissed, setFreshDismissed] = useState<string | null>(null)
   // La spiegazione della previsione si chiude toccando altrove.
   useEffect(() => {
     if (!infoOpen) return
@@ -188,7 +190,9 @@ export function ThreadView(props: Props) {
     for (const day of [...days].reverse()) {
       const upcoming = day.date.getTime() > now.getTime() && !recent.has(day.key)
       const byDefault = upcoming || recent.has(day.key) || day.items.length === 1
-      const open = day.key === freshDay || (dayState[day.key] ?? byDefault)
+      // Il giorno del movimento appena salvato si apre da solo, finché non lo si richiude.
+      const showFresh = day.key === freshDay && freshDismissed !== freshId
+      const open = showFresh || (dayState[day.key] ?? byDefault)
       if (open) {
         out.push({ type: 'day', key: day.key, date: day.date, balance: day.end, spent: day.spent, upcoming })
         for (const item of [...day.items].reverse()) out.push({ type: 'tx', ...item })
@@ -198,7 +202,7 @@ export function ThreadView(props: Props) {
     }
     out.push({ type: 'start', balance: startBalance })
     return out
-  }, [startBalance, monthTx, forecast, dayState, freshDay])
+  }, [startBalance, monthTx, forecast, dayState, freshDay, freshDismissed, freshId])
 
   // Riferimento per lo spessore: il saldo più alto toccato nel mese.
   const ref = useMemo(() => {
@@ -226,6 +230,7 @@ export function ThreadView(props: Props) {
 
   /** Apre o chiude un giorno, partendo da come è mostrato adesso. */
   function toggle(key: string, openNow: boolean) {
+    if (openNow && key === freshDay) setFreshDismissed(freshId)
     setDays((prev) => {
       const next = { ...prev }
       delete next[key]
@@ -238,6 +243,7 @@ export function ThreadView(props: Props) {
   const allOpen = rows.filter((r) => r.type === 'summary').length === 0
   const allClosed = !rows.some((r) => r.type === 'day')
   function setAll(open: boolean) {
+    if (!open) setFreshDismissed(freshId)
     setDays((prev) => {
       const next = { ...prev }
       for (const key of monthDays) {
