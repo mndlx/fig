@@ -133,26 +133,37 @@ export function guessColumns(rows: string[][]): ColumnGuess {
   }
   const header = rows[headerRow].map((h) => h.toLowerCase())
   const body = rows.slice(headerRow + 1, headerRow + 30)
-  const find = (re: RegExp) => header.findIndex((h) => re.test(h))
+  // La colonna del saldo non è mai l'importo del movimento (it. saldo, en. balance, sq. balanca / gjendja).
+  const isBalance = (h: string) => /saldo|balanc|gjendj/.test(h)
+  const find = (re: RegExp) => header.findIndex((h) => re.test(h) && !isBalance(h))
 
   let dateCol = find(/data\s*(contabile|operazione)?$|^data|date/)
   if (dateCol < 0) {
     const scores = header.map((_, c) => body.filter((r) => parseDate(r[c] ?? '')).length)
     dateCol = scores.indexOf(Math.max(...scores))
   }
-  const debit = find(/dare|uscit|addebit|debit/)
-  const credit = find(/avere|entrat|accredit|credit/)
-  let amountCol = find(/importo|amount|ammontare|valore/)
+  // Intestazioni in italiano, inglese e albanese (debi / kredi / shuma).
+  const debit = find(/dare|uscit|addebit|debi|withdraw|paid out/)
+  const credit = find(/avere|entrat|accredit|kredi|credit|deposit|paid in/)
+  let amountCol = find(/importo|amount|ammontare|valore|movimento|shuma/)
   let creditCol = -1
   if (debit >= 0 && credit >= 0) {
     amountCol = debit
     creditCol = credit
   }
   if (amountCol < 0) {
-    const scores = header.map((_, c) => (c === dateCol ? -1 : body.filter((r) => parseAmount(r[c] ?? '') !== null).length))
+    const scores = header.map((h, c) => (c === dateCol || isBalance(h) ? -1 : body.filter((r) => parseAmount(r[c] ?? '') !== null).length))
     amountCol = scores.indexOf(Math.max(...scores))
   }
-  let descCol = find(/descri|causale|operazione|dettagl|beneficiar|esercente|merchant/)
+  // Più colonne di testo ("Operazione" generica e "Dettagli" col nome del negozio): vale quella con i
+  // contenuti più vari, a parità la più lunga. È lì che si legge a chi sono andati i soldi.
+  const descRe = /descri|causale|operazione|dettagl|detail|beneficiar|esercente|merchant|payee|narrative|p[eë]rshkrim/
+  const taken = new Set([dateCol, amountCol, creditCol])
+  const variety = (c: number) => new Set(body.map((r) => r[c] ?? '')).size * 1000 + body.reduce((sum, r) => sum + (r[c]?.length ?? 0), 0) / Math.max(1, body.length)
+  let descCol = header
+    .map((_, c) => c)
+    .filter((c) => descRe.test(header[c]) && !isBalance(header[c]) && !taken.has(c))
+    .sort((a, b) => variety(b) - variety(a))[0] ?? -1
   if (descCol < 0 || descCol === dateCol) {
     const lengths = header.map((_, c) =>
       c === dateCol || c === amountCol || c === creditCol ? -1 : body.reduce((sum, r) => sum + (r[c]?.length ?? 0), 0),

@@ -134,6 +134,8 @@ export interface ImportProfile {
   amountCol: number
   /** Colonna "Avere" quando la banca separa uscite ed entrate; -1 se l'importo ha il segno. */
   creditCol: number
+  /** Colonna unica in cui le uscite sono numeri positivi. */
+  invert?: boolean
   accountId: string
 }
 

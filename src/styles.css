@@ -1543,30 +1543,167 @@ select {
   flex-direction: column;
 }
 .import-row {
-  display: grid;
-  grid-template-columns: 22px 1fr auto;
-  gap: 4px 10px;
-  align-items: center;
-  padding: 10px 4px;
+  padding: 12px 2px;
   border-top: 1px solid var(--line);
   font-size: 14px;
 }
-.import-row.dup {
+.import-row:first-child {
+  border-top: 0;
+  padding-top: 4px;
+}
+.import-row:last-child {
+  padding-bottom: 4px;
+}
+/* Tutta la parte alta della riga accende e spegne la spunta. */
+.import-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+.import-main input[type='checkbox'] {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  accent-color: var(--fig);
+}
+.import-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.import-meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  font-size: 13px;
+}
+.import-amount {
+  margin-left: auto;
+  font-family: var(--serif);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* La descrizione della banca va a capo: il nome del negozio sta quasi sempre in fondo. */
+.import-desc {
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+.import-row.off .import-main {
   opacity: 0.55;
 }
-.import-row select {
-  grid-column: 2 / -1;
+.import-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 0 30px;
+}
+.import-choice select {
+  flex: 1;
+  min-width: 0;
   background: var(--key);
   border: 0;
   border-radius: 10px;
-  padding: 6px 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  color: var(--ink);
+}
+.import-file {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+.import-cols {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.import-invert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.import-invert input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--fig);
+}
+.import-summary {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.import-count {
+  font-family: var(--serif);
+  font-size: 34px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.import-count .muted {
+  font-size: 18px;
+}
+.import-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.import-chips span {
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--key);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.import-chips .in {
+  color: var(--positive);
+}
+.import-early {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--key);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.import-early p {
+  margin: 0;
+}
+.import-select {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
   font-size: 13px;
 }
-.import-desc {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.import-select .link-btn {
+  font-size: 13px;
+}
+/* Il pulsante di importazione resta a portata di dito anche con liste lunghe. */
+.import-bar {
+  position: sticky;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  z-index: 2;
+  margin-top: 14px;
+}
+.import-bar .primary {
+  margin-top: 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+.import-bar .primary:disabled {
+  opacity: 0.5;
 }
 .badge {
   display: inline-block;
@@ -3176,4 +3313,8 @@ a.profile-edit {
 }
 .sheet.add .handle-zone .close {
   z-index: 3;
+}
+.import-early .secondary {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 16%, transparent);
 }
