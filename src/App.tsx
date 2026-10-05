@@ -2,19 +2,21 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AddSheet, remember, type SheetPreset } from './AddSheet'
 import { Calculator } from './Calculator'
 import { Reconcile } from './Reconcile'
-import { IconAlertTriangle, IconCalculator } from '@tabler/icons-react'
-import { accountBalance, goalBalances, signedMain, useAppData, type AppData } from './data'
+import { IconAlertTriangle, IconCalculator, IconInfoCircle } from '@tabler/icons-react'
+import { accountBalance, goalBalances, placeholderOnly, signedMain, useAppData, type AppData } from './data'
 import { db, type Currency, type Goal, type Transaction } from './db'
+import { undoStartingBalances } from './firstRun'
 import { GoalDetail, GoalForm, Goals, type GoalTemplate } from './Goals'
 import { builtinName, dateFmt, getLang, readLangSetting, resolveLang, setLang, t, writeLangSetting, type LangSetting } from './i18n'
 import { IconBranch, IconFig, IconFigOutline, IconGear, IconLeft, IconPlus, IconRight, IconTree } from './icons'
-import { formatMoney, moneyParts, parseTyped } from './money'
-import { migrateInitialBalances, saveOpening } from './opening'
+import { formatMoney, moneyParts } from './money'
+import { SetupCard } from './Onboarding'
+import { hasOpening, migrateInitialBalances } from './opening'
 import { Settings } from './Settings'
 import { ThreadView } from './ThreadView'
 import { Trama } from './Trama'
 import { authEnabled } from './auth'
-import { useSyncStatus } from './sync'
+import { syncNow, useSyncStatus } from './sync'
 
 const DAY = 86_400_000
 
@@ -38,7 +40,9 @@ export interface MonthView {
   /** Quota del mese trascorsa, da 0 a 1. */
   elapsed: number
   daysLeft: number
-  /** Quota delle risorse del mese (saldo iniziale + entrate) già uscita dal disponibile. */
+  /** Risorse del mese: quanto c'era all'inizio più entrate e saldi iniziali. */
+  pool: number
+  /** Quota delle risorse del mese già uscita dal disponibile. */
   usedShare: number
 }
 
@@ -119,7 +123,7 @@ export function computeMonth(data: AppData, monthOffset: number): MonthView {
   const pool = startBalance + income + opening
   const usedShare = pool > 0 ? outOfPocket / pool : outOfPocket > 0 ? 1 : 0
 
-  return { start, end, isCurrent, monthTx, startBalance, income, expense, saved, balanceNow, endBalance, forecast, forecastInfo, elapsed, daysLeft, usedShare }
+  return { start, end, isCurrent, monthTx, startBalance, income, expense, saved, balanceNow, endBalance, forecast, forecastInfo, elapsed, daysLeft, pool, usedShare }
 }
 
 function BigMoney({ minor, currency }: { minor: number; currency: Currency }) {
@@ -142,62 +146,6 @@ interface Toast {
   undo?: () => Promise<unknown>
 }
 
-/** Primo avvio: chiede da quanto si parte, altrimenti il disponibile partirebbe da zero. */
-function Onboarding({ data, onSkip }: { data: AppData; onSkip: () => void }) {
-  const accounts = data.accounts.filter((a) => !a.archived && a.currency === data.mainCurrency.code)
-  const [values, setValues] = useState<Record<string, string>>({})
-
-  async function save() {
-    // Un nodo "Saldo iniziale" per ogni conto compilato, modificabile dal filo.
-    const now = Date.now()
-    for (const a of accounts) {
-      const v = parseTyped(values[a.id] ?? '', data.mainCurrency.decimals)
-      if (v !== 0) await saveOpening(a, v, v, now)
-    }
-    onSkip()
-  }
-
-  return (
-    <section className="card onboarding">
-      <p className="empty-title" style={{ margin: 0 }}>
-        {t('onb.title')}
-      </p>
-      <p className="muted small" style={{ margin: '4px 0 12px' }}>
-        {t('onb.body')}
-      </p>
-      <div className="form">
-        {accounts.map((a) => (
-          <label key={a.id} className="field">
-            {builtinName(a, 'acc')}
-            <input
-              inputMode="decimal"
-              placeholder={formatMoney(0, data.mainCurrency)}
-              value={values[a.id] ?? ''}
-              onChange={(e) => setValues((v) => ({ ...v, [a.id]: e.target.value }))}
-            />
-          </label>
-        ))}
-        <div className="form-actions">
-          <button className="secondary" onClick={onSkip}>
-            {t('onb.later')}
-          </button>
-          <button className="primary" onClick={save}>
-            {t('onb.start')}
-          </button>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function readFlag(key: string): boolean {
-  try {
-    return localStorage.getItem(key) === '1'
-  } catch {
-    return false
-  }
-}
-
 export default function App({ offline = false, local = false }: { offline?: boolean; local?: boolean }) {
   const data = useAppData()
   const [langSetting, setLangSetting] = useState<LangSetting>(readLangSetting)
@@ -218,21 +166,24 @@ export default function App({ offline = false, local = false }: { offline?: bool
   }
   const [monthOffset, setMonthOffset] = useState(0)
   const [calcOpen, setCalcOpen] = useState(false)
-  const [reconcileId, setReconcileId] = useState<string | null>(null)
+  const [reconcileId, setReconcileIdRaw] = useState<string | null>(null)
   // Scorciatoia "Nuovo movimento" dall'icona dell'app (?add=1): si apre subito l'inserimento.
-  const [sheet, setSheet] = useState<{ editing: Transaction | null; preset?: SheetPreset } | null>(() =>
+  const [sheet, setSheetRaw] = useState<{ editing: Transaction | null; preset?: SheetPreset } | null>(() =>
     new URLSearchParams(location.search).has('add') ? { editing: null } : null,
   )
   useEffect(() => {
     // Tolti i parametri di avvio (?add, ?source): un ricaricamento non riapre l'inserimento.
     if (location.search) history.replaceState(null, '', location.pathname)
   }, [])
-  const [goalForm, setGoalForm] = useState<{ goal: Goal | null; returnTo: Tab; template?: GoalTemplate } | null>(null)
+  const [goalForm, setGoalFormRaw] = useState<{ goal: Goal | null; returnTo: Tab; template?: GoalTemplate } | null>(null)
   const [goalDetail, setGoalDetail] = useState<string | null>(null)
   const syncStatus = useSyncStatus()
   const [freshId, setFreshId] = useState<string | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
-  const [onboardingDone, setOnboardingDone] = useState(() => readFlag('fig-onboarding'))
+  // Riquadro dei saldi iniziali riaperto a mano dopo "Più tardi".
+  const [setupOpen, setSetupOpen] = useState(false)
+  const [heroInfo, setHeroInfo] = useState(false)
+  const heroRef = useRef<HTMLElement>(null)
   const toastTimer = useRef<number | undefined>(undefined)
 
   const view = useMemo(() => (data ? computeMonth(data, monthOffset) : null), [data, monthOffset])
@@ -247,9 +198,21 @@ export default function App({ offline = false, local = false }: { offline?: bool
     () => (data ? data.accounts.filter((a) => !a.archived).map((account) => ({ account, balance: accountBalance(account, data) })) : []),
     [data],
   )
-  const overdrawn = heroAccounts.filter((a) => a.balance < 0)
 
   useEffect(() => () => window.clearTimeout(toastTimer.current), [])
+  // Scorciatoia "Nuovo movimento" su un dispositivo che ha ancora solo dati predefiniti: l'inserimento non si apre.
+  const blockedNow = !!data && placeholderOnly(data)
+  useEffect(() => {
+    if (blockedNow) setSheetRaw((s) => (s && !s.editing ? null : s))
+  }, [blockedNow])
+  useEffect(() => {
+    // Le versioni precedenti ricordavano il riquadro iniziale nel browser: ora la risposta sta nelle impostazioni dell'utente.
+    try {
+      localStorage.removeItem('fig-onboarding')
+    } catch {
+      /* memoria non disponibile: non c'è niente da togliere */
+    }
+  }, [])
 
   // Saldi iniziali delle versioni precedenti (campo nascosto del conto) → nodi sul filo.
   const hasLegacyBalances = !!data?.accounts.some((a) => a.initialBalance !== 0 || a.initialMain !== 0)
@@ -273,6 +236,19 @@ export default function App({ offline = false, local = false }: { offline?: bool
     setToast({ id: Date.now(), text, undo })
     toastTimer.current = window.setTimeout(() => setToast(null), 5000)
   }
+
+  // Sul dispositivo ci sono solo dati predefiniti e l'archivio dell'account deve ancora arrivare: un movimento
+  // scritto adesso nascerebbe nella valuta stimata, su conti vuoti. Inserimento, allineamento e nuovi obiettivi aspettano.
+  const blocked = placeholderOnly(data)
+  function unlessBlocked<T>(open: (value: T) => void) {
+    return (value: T) => {
+      if (value !== null && blocked) return showToast(t('sync.archivePending'))
+      open(value)
+    }
+  }
+  const setSheet = unlessBlocked(setSheetRaw)
+  const setReconcileId = unlessBlocked(setReconcileIdRaw)
+  const setGoalForm = unlessBlocked(setGoalFormRaw)
 
   function describe(tx: Transaction): string {
     const goalObj = data!.goals.find((g) => g.id === tx.goalId)
@@ -298,18 +274,29 @@ export default function App({ offline = false, local = false }: { offline?: bool
     }
   }
 
-  function finishOnboarding() {
-    try {
-      localStorage.setItem('fig-onboarding', '1')
-    } catch {
-      /* senza storage si richiede al prossimo avvio: va bene lo stesso */
-    }
-    setOnboardingDone(true)
-  }
+  // ——— Primo avvio ———
+  // I saldi iniziali non sono movimenti "veri": finché ci sono solo quelli l'app è ancora da cominciare.
+  const realTx = data.transactions.filter((tx) => tx.kind !== 'opening')
+  const firstUse = realTx.length === 0
+  const anyOpening = realTx.length < data.transactions.length
+  // La domanda sul saldo di partenza è ancora aperta: nessuna risposta e nessun saldo iniziale. Finché l'archivio
+  // dell'account non è stato scaricato (archivePending) si vedono solo dati predefiniti, quindi non vale.
+  const setupPending = !data.archivePending && data.setup !== 'done' && !anyOpening && data.accounts.some((a) => !a.archived && a.currency === mainCurrency.code)
+  // Riquadro e riga compaiono solo dopo la sincronizzazione di questa sessione: la risposta potrebbe essere già
+  // stata data su un altro dispositivo, e una data qui su dati vecchi la sovrascriverebbe dappertutto. Vale anche
+  // per una sessione partita senza rete; senza account non c'è niente da aspettare.
+  const dataReady = local || !authEnabled() || syncStatus.lastSync !== null
+  const needsSetup = dataReady && setupPending
+  // Da solo compare una volta, a chi ha appena cominciato; dopo "Più tardi" resta una riga discreta che lo riapre.
+  const showSetup = needsSetup && (setupOpen || (data.setup === undefined && realTx.length < 10))
+  // Ai primi movimenti, senza un punto di partenza, una previsione di fine mese direbbe solo quanto si è speso.
+  const hideForecast = setupPending && realTx.length < 10
 
-  // Su un dispositivo nuovo si aspetta la prima sincronizzazione: il saldo iniziale potrebbe già essere sul server.
-  const dataReady = offline || local || !authEnabled() || syncStatus.lastSync !== null
-  const showOnboarding = dataReady && !onboardingDone && data.transactions.length === 0 && data.accounts.every((a) => a.initialBalance === 0)
+  // Un conto in negativo di solito è un movimento sbagliato o mancante. Se però non ha mai avuto
+  // un saldo iniziale non è un errore: manca il punto di partenza, e lo si dice così.
+  const overdrawn = heroAccounts.filter((a) => a.balance < 0 && hasOpening(a.account.id, data.transactions))
+  const noStart = setupPending ? [] : heroAccounts.filter((a) => a.balance < 0 && !hasOpening(a.account.id, data.transactions))
+  const hasGoals = data.goals.some((g) => !g.archived)
 
   const monthNav = (
     <nav className="month-nav" aria-label={t('nav.month')}>
@@ -455,7 +442,7 @@ export default function App({ offline = false, local = false }: { offline?: bool
           onClose={() => setReconcileId(null)}
           onSaved={(tx) => {
             setFreshId(tx.id)
-            showToast(t('align.done'), () => db.transactions.delete(tx.id))
+            showToast(t(tx.kind === 'opening' ? 'align.startSet' : 'align.done'), () => db.transactions.delete(tx.id))
           }}
         />
       )}
@@ -471,12 +458,74 @@ export default function App({ offline = false, local = false }: { offline?: bool
 
       {tab === 'filo' && (
         <main>
-          {showOnboarding && <Onboarding data={data} onSkip={finishOnboarding} />}
-          <section className="hero">
-            <p className="hero-label">{view.isCurrent ? t('hero.available') : monthOffset < 0 ? t('hero.endOfMonth') : t('hero.projected')}</p>
+          <h1 className="sr-only">
+            {t('nav.thread')}: {monthLabel(view.start)}
+          </h1>
+          {data.archivePending && (
+            <section className="card notice" role="status">
+              {/* Dati predefiniti in attesa dell'archivio, oppure dati veri (usati senza account) in attesa di essere caricati. */}
+              <p>
+                {t(
+                  offline || syncStatus.state === 'offline'
+                    ? blocked
+                      ? 'sync.archiveOffline'
+                      : 'sync.uploadOffline'
+                    : blocked
+                      ? 'sync.archivePending'
+                      : 'sync.uploadPending',
+                )}
+              </p>
+              {/* Resta al suo posto anche mentre riprova, così la pagina non salta. */}
+              {!offline && (
+                <button className="secondary" disabled={syncStatus.state === 'syncing'} onClick={() => void syncNow()}>
+                  {t('auth.retry')}
+                </button>
+              )}
+            </section>
+          )}
+          {showSetup && (
+            <SetupCard
+              data={data}
+              local={local}
+              // Sempre il disponibile di oggi, anche se si sta guardando un altro mese: è quello che cambia salvando.
+              available={view.isCurrent ? view.balanceNow : computeMonth(data, 0).balanceNow}
+              // Il riquadro sparisce: chi usa la tastiera o un lettore di schermo riparte dal disponibile, non dall'inizio della pagina.
+              onClose={
+                setupOpen
+                  ? () => {
+                      setSetupOpen(false)
+                      heroRef.current?.focus()
+                    }
+                  : undefined
+              }
+              onDismissed={() => heroRef.current?.focus()}
+              onSaved={(ids, previous) => {
+                setSetupOpen(false)
+                heroRef.current?.focus()
+                if (ids.length === 0) return
+                setMonthOffset(0)
+                setFreshId(ids[0])
+                showToast(t('onb.saved'), () => undoStartingBalances(ids, previous))
+              }}
+            />
+          )}
+          <section className="hero" ref={heroRef} tabIndex={-1}>
+            <p className="hero-label">
+              {view.isCurrent ? t('hero.available') : monthOffset < 0 ? t('hero.endOfMonth') : t('hero.projected')}
+              {view.isCurrent && (
+                <button className="info-btn hero-info" aria-label={t('hero.availableWhat')} aria-expanded={heroInfo} onClick={() => setHeroInfo((v) => !v)}>
+                  <IconInfoCircle size={16} />
+                </button>
+              )}
+            </p>
             <p className="hero-amount">
               <BigMoney minor={view.isCurrent ? view.balanceNow : view.endBalance} currency={mainCurrency} />
             </p>
+            {view.isCurrent && heroInfo && (
+              <p className="hero-note" role="note">
+                {t('hero.availableHow')}
+              </p>
+            )}
             <p className="hero-sub">
               {view.isCurrent && (view.daysLeft <= 1 ? t('hero.lastDay') : t('hero.daysLeft', { n: view.daysLeft }))}
               {view.isCurrent && goalTotal > 0 && ' · '}
@@ -487,66 +536,95 @@ export default function App({ offline = false, local = false }: { offline?: bool
               )}
             </p>
 
-            <div className="gauges">
-              <div className="gauge">
-                <span>{t('hero.elapsed')}</span>
-                <span>{Math.round(view.elapsed * 100)}%</span>
-                <div className="gauge-track">
-                  <div className="gauge-fill" style={{ width: `${view.elapsed * 100}%` }} />
+            {/* Senza movimenti le barre e i totali del mese sarebbero solo zeri: compaiono col primo. */}
+            {!firstUse && (
+              <>
+                <div className="gauges">
+                  <div className="gauge">
+                    <span>{t('hero.elapsed')}</span>
+                    <span>{Math.round(view.elapsed * 100)}%</span>
+                    <div className="gauge-track">
+                      <div className="gauge-fill" style={{ width: `${view.elapsed * 100}%` }} />
+                    </div>
+                  </div>
+                  {/* Senza risorse (niente saldo iniziale né entrate) non c'è una quota da mostrare: sarebbe sempre "100% usato". */}
+                  {view.pool > 0 && (
+                    <div className="gauge">
+                      <span>{t('hero.used')}</span>
+                      <span>{Math.round(view.usedShare * 100)}%</span>
+                      <div className="gauge-track">
+                        <div
+                          className={`gauge-fill money${view.usedShare > view.elapsed + 0.05 && view.isCurrent ? ' over' : ''}`}
+                          style={{ width: `${Math.min(1, view.usedShare) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-              <div className="gauge">
-                <span>{t('hero.used')}</span>
-                <span>{Math.round(view.usedShare * 100)}%</span>
-                <div className="gauge-track">
-                  <div
-                    className={`gauge-fill money${view.usedShare > view.elapsed + 0.05 && view.isCurrent ? ' over' : ''}`}
-                    style={{ width: `${Math.min(1, view.usedShare) * 100}%` }}
-                  />
-                </div>
-              </div>
-            </div>
 
-            <div className="totals">
-              <span>
-                <span>{t('hero.income')}</span>
-                {formatMoney(view.income, mainCurrency)}
-              </span>
-              <span>
-                <span>{t('hero.expense')}</span>
-                {formatMoney(view.expense, mainCurrency)}
-              </span>
-              {view.saved !== 0 && (
-                <span>
-                  <span>{t('hero.saved')}</span>
-                  {formatMoney(view.saved, mainCurrency)}
-                </span>
-              )}
-            </div>
+                <div className="totals">
+                  <span>
+                    <span>{t('hero.income')}</span>
+                    {formatMoney(view.income, mainCurrency)}
+                  </span>
+                  <span>
+                    <span>{t('hero.expense')}</span>
+                    {formatMoney(view.expense, mainCurrency)}
+                  </span>
+                  {view.saved !== 0 && (
+                    <span>
+                      <span>{t('hero.saved')}</span>
+                      {formatMoney(view.saved, mainCurrency)}
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
 
             {heroAccounts.length > 0 && (
               <div className="hero-accounts">
-                {heroAccounts.map(({ account, balance }) => (
-                  <button key={account.id} className="hero-account" aria-label={t('align.title', { name: builtinName(account, 'acc') })} onClick={() => setReconcileId(account.id)}>
-                    <span>{builtinName(account, 'acc')}</span>
-                    <span className={balance < 0 ? 'negative' : undefined}>
-                      {formatMoney(balance, data.currencies.find((c) => c.code === account.currency) ?? mainCurrency)}
-                    </span>
-                  </button>
-                ))}
+                {heroAccounts.map(({ account, balance }) => {
+                  const name = builtinName(account, 'acc')
+                  const amount = formatMoney(balance, data.currencies.find((c) => c.code === account.currency) ?? mainCurrency)
+                  return (
+                    <button key={account.id} className="hero-account" aria-label={`${name}: ${amount}. ${t('align.cta')}`} onClick={() => setReconcileId(account.id)}>
+                      <span>{name}</span>
+                      <span className={balance < 0 ? 'negative' : undefined}>{amount}</span>
+                    </button>
+                  )
+                })}
               </div>
+            )}
+            {view.isCurrent && needsSetup && !showSetup && (
+              <p className="hero-setup">
+                {t('hero.noStartingBalance')}{' '}
+                <button className="hero-warn-link" onClick={() => setSetupOpen(true)}>
+                  {t('hero.setStart')}
+                </button>
+              </p>
             )}
             {view.isCurrent && overdrawn.length > 0 && (
               <p className="hero-warn" role="alert">
                 <IconAlertTriangle size={18} stroke={1.8} />
                 <span>
-                {t(overdrawn.length === 1 ? 'hero.overdrawn' : 'hero.overdrawnMany', {
-                  name: builtinName(overdrawn[0].account, 'acc'),
-                  n: overdrawn.length,
-                })}{' '}
-                <button className="hero-warn-link" onClick={() => setReconcileId(overdrawn[0].account.id)}>
-                  {t('align.cta')}
-                </button>
+                  {t(overdrawn.length === 1 ? 'hero.overdrawn' : 'hero.overdrawnMany', {
+                    name: builtinName(overdrawn[0].account, 'acc'),
+                    n: overdrawn.length,
+                  })}{' '}
+                  <button className="hero-warn-link" onClick={() => setReconcileId(overdrawn[0].account.id)}>
+                    {t('align.cta')}
+                  </button>
+                </span>
+              </p>
+            )}
+            {view.isCurrent && overdrawn.length === 0 && noStart.length > 0 && (
+              <p className="hero-warn" role="status">
+                <IconAlertTriangle size={18} stroke={1.8} />
+                <span>
+                  {t('hero.noStart', { name: builtinName(noStart[0].account, 'acc') })}{' '}
+                  <button className="hero-warn-link" onClick={() => setReconcileId(noStart[0].account.id)}>
+                    {t('hero.setStart')}
+                  </button>
                 </span>
               </p>
             )}
@@ -555,27 +633,42 @@ export default function App({ offline = false, local = false }: { offline?: bool
           <ThreadView
             startBalance={view.startBalance}
             monthTx={view.monthTx}
-            forecast={view.forecast}
-            forecastInfo={view.forecastInfo}
+            forecast={hideForecast ? null : view.forecast}
+            forecastInfo={hideForecast ? null : view.forecastInfo}
             mainCurrency={mainCurrency}
             currencies={data.currencies}
             categories={data.categories}
             accounts={data.accounts}
             goals={data.goals}
             freshId={freshId}
+            legend={realTx.length > 0 && realTx.length <= 5}
             onOpen={(tx) => setSheet({ editing: tx })}
           />
-          {view.monthTx.length === 0 && (
+          {/* Il saldo iniziale è un movimento, ma un mese che ha solo quello è ancora vuoto. */}
+          {view.monthTx.every((tx) => tx.kind === 'opening') && (
             <div className="empty">
               <p className="empty-title">{t('empty.title', { month: monthName(view.start) })}</p>
-              <p className="muted small">{t('empty.body')}</p>
+              <p className="muted small">{t(firstUse ? 'empty.first' : 'empty.body')}</p>
+              {/* Una cosa alla volta: finché c'è il riquadro dei saldi, il passo successivo aspetta. */}
+              {firstUse && !showSetup && !(setupPending && data.setup === undefined) && !data.archivePending && (
+                <button className="primary" onClick={() => setSheet({ editing: null })}>
+                  {t('empty.cta')}
+                </button>
+              )}
             </div>
           )}
         </main>
       )}
 
       {tab === 'trama' && (
-        <Trama data={data} view={view} monthOffset={monthOffset} onOpen={(tx) => setSheet({ editing: tx })} onPickMonth={setMonthOffset} />
+        <Trama
+          data={data}
+          view={view}
+          monthOffset={monthOffset}
+          onOpen={(tx) => setSheet({ editing: tx })}
+          onPickMonth={setMonthOffset}
+          onAdd={() => setSheet({ editing: null })}
+        />
       )}
 
       {tab === 'goals' && (
@@ -589,23 +682,28 @@ export default function App({ offline = false, local = false }: { offline?: bool
 
       <div className="dock-wrap">
         <nav className="dock" aria-label={t('nav.sections')}>
-          <button className={`dock-tab${tab === 'filo' ? ' on' : ''}`} onClick={() => setTab('filo')}>
+          <button className={`dock-tab${tab === 'filo' ? ' on' : ''}`} aria-current={tab === 'filo' ? 'page' : undefined} onClick={() => setTab('filo')}>
             <IconBranch />
             {t('nav.thread')}
           </button>
-          <button className={`dock-tab${tab === 'goals' ? ' on' : ''}`} onClick={() => setTab('goals')}>
+          <button className={`dock-tab${tab === 'goals' ? ' on' : ''}`} aria-current={tab === 'goals' ? 'page' : undefined} onClick={() => setTab('goals')}>
             <IconFigOutline />
             {t('nav.goals')}
           </button>
-          <button className={`dock-tab${tab === 'trama' ? ' on' : ''}`} onClick={() => setTab('trama')}>
+          <button className={`dock-tab${tab === 'trama' ? ' on' : ''}`} aria-current={tab === 'trama' ? 'page' : undefined} onClick={() => setTab('trama')}>
             <IconTree />
             {t('nav.weave')}
           </button>
         </nav>
         <button
           className="dock-add"
-          aria-label={t('nav.add')}
-          onClick={() => setSheet({ editing: null, preset: tab === 'goals' ? { mode: 'goal', goalDir: 'save' } : undefined })}
+          aria-label={tab === 'goals' && !hasGoals ? t('goals.createCta') : t('nav.add')}
+          onClick={() => {
+            // Negli Obiettivi il "+" mette da parte; senza obiettivi non c'è dove, quindi ne crea uno.
+            if (tab !== 'goals') setSheet({ editing: null })
+            else if (hasGoals) setSheet({ editing: null, preset: { mode: 'goal', goalDir: 'save' } })
+            else setGoalForm({ goal: null, returnTo: 'goals' })
+          }}
         >
           <IconPlus />
         </button>

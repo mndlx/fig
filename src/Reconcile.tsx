@@ -3,10 +3,11 @@ import { ACCOUNT_KEY, remember } from './AddSheet'
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { CategoryIcon } from './catIcons'
-import { accountBalance, type AppData } from './data'
+import { accountBalance, placeholderOnly, type AppData } from './data'
 import { db, type Account, type Category, type Transaction } from './db'
 import { builtinName, decimalSep, t } from './i18n'
-import { convertMinor, fetchRate, formatMoney, fromMinor, parseTyped } from './money'
+import { convertMinor, fetchRate, formatMoney, fromMinor, readTyped } from './money'
+import { hasOpening, openingFromBalance, saveOpening } from './opening'
 
 /** Categorie predefinite per gli allineamenti: create al primo uso sui database che non le hanno ancora. */
 export const ADJUST_CATEGORIES: Record<'expense' | 'income', Category> = {
@@ -24,6 +25,8 @@ interface Props {
 /**
  * Allineamento di un conto: si scrive il saldo reale (quello della banca o del portafoglio)
  * e la differenza con FIG diventa un movimento, di solito commissioni addebitate in automatico.
+ * Se il conto non ha mai avuto un saldo iniziale la differenza è proprio quello: non un'entrata
+ * né un'uscita, ma il punto di partenza che mancava.
  */
 export function Reconcile({ data, account: initialAccount, onClose, onSaved }: Props) {
   const { currencies, mainCurrency, categories, transactions } = data
@@ -33,6 +36,16 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
   const currency = currencies.find((c) => c.code === account.currency) ?? mainCurrency
   const foreign = currency.code !== mainCurrency.code
   const current = accountBalance(account, data)
+  // Senza saldo iniziale il conto parte da zero: la differenza col saldo reale è il saldo iniziale che manca.
+  const noOpening = !hasOpening(account.id, transactions)
+  // Se però il conto ha già dei movimenti (magari è partito davvero da zero) la differenza può anche essere
+  // una commissione di oggi: si propone la lettura più probabile e la si lascia cambiare.
+  const hasHistory = transactions.some((tx) => tx.kind !== 'opening' && (tx.accountId === account.id || tx.toAccountId === account.id))
+  const [asStart, setAsStart] = useState<boolean | null>(null)
+  // Di partenza si propone il saldo iniziale se il conto è vuoto o in negativo, o se la domanda sui saldi
+  // di partenza è ancora aperta (nessuna risposta e nessun saldo iniziale altrove); altrimenti la differenza di oggi.
+  const unanswered = data.setup !== 'done' && !transactions.some((tx) => tx.kind === 'opening')
+  const starting = noOpening && (asStart ?? (!hasHistory || current < 0 || unanswered))
   const [input, setInput] = useState('')
 
   function pickAccount(id: string) {
@@ -40,6 +53,10 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
     remember.set(ACCOUNT_KEY, id)
     setInput('')
     setError('')
+    setAsStart(null)
+    // Altra valuta: finché non arriva il suo cambio non si salva con quello di prima.
+    const next = data.accounts.find((a) => a.id === id)
+    if (next && next.currency !== mainCurrency.code && next.currency !== currency.code) setRate(null)
   }
   const [rate, setRate] = useState<number | null>(foreign ? null : 1)
   useEffect(() => {
@@ -50,8 +67,10 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
   const [error, setError] = useState('')
   const [allCats, setAllCats] = useState(false)
 
-  const parsed = input.trim() ? parseTyped(input, currency.decimals) : NaN
-  const real = Number.isFinite(parsed) ? parsed : null
+  // Testo illeggibile ("abc", "12,3,4") non è zero: non si registra niente finché non è un numero.
+  const real = input.trim() ? readTyped(input, currency.decimals) : null
+  // Senza ancora una cifra ("-", ",") si sta solo cominciando a scrivere: non è un errore.
+  const unreadable = real === null && /\d/.test(input)
   const diff = real === null ? 0 : real - current
   const kind: 'expense' | 'income' = diff < 0 ? 'expense' : 'income'
 
@@ -86,7 +105,17 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
   async function save() {
     if (real === null) return setError(t('align.errBalance'))
     if (diff === 0) return onClose()
+    // Archivio dell'account non ancora scaricato: il saldo "in FIG" qui sopra è quello dei dati predefiniti.
+    if (placeholderOnly(data)) return setError(t('sync.archivePending'))
     if (!(rate && rate > 0)) return setError(t('err.rate', { from: currency.code, to: mainCurrency.code }))
+    if (starting) {
+      // Datato prima del movimento più vecchio del conto, così sul ramo sta alla base e il saldo di oggi torna.
+      const o = openingFromBalance(account, real, transactions, currency, mainCurrency, rate)
+      const opening = await saveOpening(account, o.amount, o.mainAmount, o.date, rate)
+      navigator.vibrate?.(8)
+      if (opening) onSaved?.(opening)
+      return onClose()
+    }
     const categoryId = picked[kind]
     const adjust = ADJUST_CATEGORIES[kind]
     if (categoryId === adjust.id && !categories.some((c) => c.id === adjust.id)) await db.categories.put(adjust)
@@ -111,6 +140,39 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
   }
 
   const name = builtinName(account, 'acc')
+  // Differenza registrata come movimento di oggi: cosa diventa, in che categoria, con che nota.
+  const adjustFields = (
+    <>
+      <p className="rec-diff">
+        {t(kind === 'expense' ? 'align.willExpense' : 'align.willIncome', { amount: formatMoney(Math.abs(diff), currency) })}
+      </p>
+      <div className="field">
+        {t('align.category')}
+        <div className="chips">
+          {(allCats ? options : options.filter((c, i) => i < 4 || c.id === picked[kind])).map((c) => (
+            <button
+              key={c.id}
+              className={`chip rec-chip${picked[kind] === c.id ? ' current' : ''}`}
+              style={{ '--c': c.color } as CSSProperties}
+              onClick={() => setPicked((p) => ({ ...p, [kind]: c.id }))}
+            >
+              <CategoryIcon name={c.icon} size={16} />
+              {builtinName(c, 'cat')}
+            </button>
+          ))}
+          {!allCats && options.length > 4 && (
+            <button className="chip ghost rec-chip" onClick={() => setAllCats(true)}>
+              {t('align.moreCats')}
+            </button>
+          )}
+        </div>
+      </div>
+      <label className="field">
+        {t('add.addNote')}
+        <input className="input" value={note} placeholder={t('align.defaultNote')} onChange={(e) => setNote(e.target.value)} />
+      </label>
+    </>
+  )
   return createPortal(
     <div className="backdrop calc-backdrop" onClick={(e) => (e.stopPropagation(), onClose())}>
       <div className="sheet reconcile" role="dialog" aria-label={t('align.title', { name })} onClick={(e) => e.stopPropagation()}>
@@ -121,7 +183,7 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
           </button>
         </div>
         <p className="muted small" style={{ margin: 0 }}>
-          {t('align.intro')}
+          {t(starting ? 'align.introStart' : 'align.intro')}
         </p>
         {activeAccounts.length > 1 && (
           <div className="ctx-row align-accounts" role="radiogroup" aria-label={t('align.account')}>
@@ -148,6 +210,7 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
               key={account.id}
               value={input}
               placeholder={fromMinor(current, currency.decimals).toFixed(currency.decimals).replace('.', decimalSep())}
+              aria-invalid={unreadable}
               onChange={(e) => (setInput(e.target.value), setError(''))}
               onKeyDown={(e) => e.key === 'Enter' && save()}
             />
@@ -161,40 +224,28 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
             </p>
           ) : (
             <>
-              <p className="rec-diff">
-                {t(kind === 'expense' ? 'align.willExpense' : 'align.willIncome', { amount: formatMoney(Math.abs(diff), currency) })}
-              </p>
-              <div className="field">
-                {t('align.category')}
-                <div className="chips">
-                  {(allCats ? options : options.filter((c, i) => i < 4 || c.id === picked[kind])).map((c) => (
-                    <button
-                      key={c.id}
-                      className={`chip rec-chip${picked[kind] === c.id ? ' current' : ''}`}
-                      style={{ '--c': c.color } as CSSProperties}
-                      onClick={() => setPicked((p) => ({ ...p, [kind]: c.id }))}
-                    >
-                      <CategoryIcon name={c.icon} size={16} />
-                      {builtinName(c, 'cat')}
-                    </button>
-                  ))}
-                  {!allCats && options.length > 4 && (
-                    <button className="chip ghost rec-chip" onClick={() => setAllCats(true)}>
-                      {t('align.moreCats')}
-                    </button>
-                  )}
+              {noOpening && hasHistory && (
+                <div className="ctx-row align-kind" role="group" aria-label={t('align.whichLabel')}>
+                  <button className={`ctx${starting ? ' on' : ''}`} aria-pressed={starting} onClick={() => setAsStart(true)}>
+                    {t('align.asStart')}
+                  </button>
+                  <button className={`ctx${starting ? '' : ' on'}`} aria-pressed={!starting} onClick={() => setAsStart(false)}>
+                    {t('align.asAdjust')}
+                  </button>
                 </div>
-              </div>
-              <label className="field">
-                {t('add.addNote')}
-                <input className="input" value={note} placeholder={t('align.defaultNote')} onChange={(e) => setNote(e.target.value)} />
-              </label>
+              )}
+              {starting ? <p className="rec-diff">{t('align.willStart', { amount: formatMoney(diff, currency) })}</p> : adjustFields}
             </>
           ))}
 
-        {error && <p className="error">{error}</p>}
+
+        {(error || unreadable) && (
+          <p className="error" role="alert">
+            {error || t('align.errBalance')}
+          </p>
+        )}
         <button className="save-btn" disabled={real === null} onClick={save}>
-          {real !== null && diff === 0 ? t('common.done') : t('align.save')}
+          {real !== null && diff === 0 ? t('common.done') : t(starting ? 'align.saveStart' : 'align.save')}
         </button>
       </div>
     </div>,

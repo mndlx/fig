@@ -20,7 +20,7 @@ import {
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { exportCsv, exportJson, importJson } from './backup'
 import { CATEGORY_ICONS, CategoryIcon } from './catIcons'
-import { accountBalance, type AppData } from './data'
+import { accountBalance, placeholderOnly, type AppData } from './data'
 import { db, openingId, WOOL, type Account, type Category, type Frequency, type Recurring } from './db'
 import { saveOpening } from './opening'
 import { dropIndex, moveItem, reorder } from './reorder'
@@ -30,7 +30,7 @@ import { builtinName, dateFmt, numberToInput, t, type Key, type LangSetting } fr
 import { IconLeft } from './icons'
 import { ImportCsv } from './ImportCsv'
 import { authEnabled, currentUser, deleteAccount, setLocalOnly, signIn, signOut } from './auth'
-import { clearLocalData, getSyncStatus, syncNow, useSyncStatus } from './sync'
+import { clearLocalData, syncNow, useSyncStatus } from './sync'
 import { convertMinor, fetchRate, formatMoney, fromMinor, parseTyped } from './money'
 import { readTheme, writeTheme, type Theme } from './theme'
 
@@ -166,6 +166,11 @@ function SettingsMain({
   const activeRecurring = recurring.filter((r) => r.active).length
 
   async function restore(text: string) {
+    // Archivio dell'account non ancora scaricato: un ripristino adesso verrebbe poi coperto o mescolato.
+    if (placeholderOnly(data)) {
+      setPendingRestore(null)
+      return setMessage(t('sync.archivePending'))
+    }
     try {
       await importJson(text)
       setMessage(t('set.restored'))
@@ -387,11 +392,19 @@ function ProfilePage({ onBack }: { onBack: () => void }) {
 function SignOut() {
   const status = useSyncStatus()
   const [confirm, setConfirm] = useState(false)
+  const [neverUploaded, setNeverUploaded] = useState(false)
+  const [waiting, setWaiting] = useState(0)
 
   async function doSignOut(force = false) {
     if (!force) {
       await syncNow()
-      if (getSyncStatus().pending > 0) return setConfirm(true)
+      // Dati usati senza account e mai caricati (primo scaricamento non riuscito): non sono in coda, ma esistono solo qui.
+      const onlyHere = !!(await db.syncMeta.get('adopt')) && (await db.transactions.count()) + (await db.goals.count()) + (await db.recurring.count()) > 0
+      setNeverUploaded(onlyHere)
+      // Contato dal database, non dallo stato a schermo: durante il primo caricamento quello può essere indietro.
+      const waiting = await db.syncQueue.count()
+      setWaiting(waiting)
+      if (waiting > 0 || onlyHere) return setConfirm(true)
     }
     await clearLocalData()
     signOut()
@@ -409,7 +422,7 @@ function SignOut() {
       </div>
       {confirm && (
         <div className="card" style={{ marginTop: 12 }}>
-          <p style={{ margin: '0 0 12px' }}>{t('set.signOutWarn', { n: status.pending })}</p>
+          <p style={{ margin: '0 0 12px' }}>{neverUploaded ? t('set.signOutWarnLocal') : t('set.signOutWarn', { n: Math.max(waiting, status.pending) })}</p>
           <div className="form-actions">
             <button className="secondary" onClick={() => setConfirm(false)}>
               {t('common.cancel')}
@@ -961,6 +974,17 @@ function AccountForm({ data, acc, onDone }: { data: AppData; acc?: Account; onDo
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [reconcile, setReconcile] = useState(false)
   const foreign = code !== mainCurrency.code
+  // Il saldo iniziale può cambiare mentre il modulo è aperto (impostato da "Allinea saldo" qui sotto, o arrivato
+  // da un altro dispositivo): il campo lo segue, altrimenti "Salva" lo riscriverebbe col valore di prima.
+  const openingAmount = opening?.amount
+  // I decimali sono quelli della valuta in cui il saldo iniziale è stato salvato, non di quella appena scelta nel modulo.
+  const openingDecimals = currencies.find((c) => c.code === opening?.currency)?.decimals ?? currency.decimals
+  const seeded = useRef(openingAmount)
+  useEffect(() => {
+    if (seeded.current === openingAmount) return
+    seeded.current = openingAmount
+    setBalance(openingAmount !== undefined ? numberToInput(fromMinor(openingAmount, openingDecimals)) : '')
+  }, [openingAmount, openingDecimals])
   const used = acc ? data.transactions.some((tx) => tx.kind !== 'opening' && (tx.accountId === acc.id || tx.toAccountId === acc.id)) : false
 
   useEffect(() => {
@@ -975,6 +999,8 @@ function AccountForm({ data, acc, onDone }: { data: AppData; acc?: Account; onDo
   }, [foreign, code, mainCurrency.code])
 
   async function save() {
+    // Archivio dell'account non ancora scaricato: questi sono i conti predefiniti, non quelli dell'utente.
+    if (placeholderOnly(data)) return setError(t('sync.archivePending'))
     if (!name.trim()) return setError(t('err.name'))
     const initialBalance = parseTyped(balance, currency.decimals)
     const rateValue = foreign ? rateFromInput(rate) : 1
@@ -1148,6 +1174,8 @@ function MainCurrencyForm({ data, code, onDone }: { data: AppData; code: string;
   async function apply() {
     const x = rateFromInput(rate)
     if (!(x > 0)) return setError(t('mainCur.rateErr'))
+    // Archivio dell'account non ancora scaricato: qui ci sono solo dati predefiniti, convertirli non avrebbe senso.
+    if (data.archivePending) return setError(t('sync.archivePending'))
     setBusy(true)
     const cur = new Map(currencies.map((c) => [c.code, c]))
     const toTarget = (minor: number) => Math.round(fromMinor(minor, mainCurrency.decimals) * x * 10 ** target.decimals)
@@ -1182,7 +1210,8 @@ function MainCurrencyForm({ data, code, onDone }: { data: AppData; code: string;
             a.currency === target.code ? a.initialBalance : Math.round(fromMinor(a.initialMain, mainCurrency.decimals) * x * 10 ** target.decimals),
         })),
       )
-      await db.settings.put({ id: 'main', mainCurrency: target.code })
+      // Solo il campo della valuta: gli altri (es. la risposta al riquadro iniziale) restano.
+      await db.settings.update('main', { mainCurrency: target.code })
     })
     onDone()
   }

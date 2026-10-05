@@ -1,13 +1,14 @@
 import { IconArrowLeft, IconBackspace, IconCalculator, IconCalendar, IconCheck, IconChevronDown, IconChevronRight, IconScale, IconNote, IconPigMoney, IconPlus, IconRepeat, IconWallet, IconX } from '@tabler/icons-react'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CategoryIcon } from './catIcons'
-import { accountBalance, goalBalances, goalDelta, type AppData } from './data'
+import { accountBalance, goalBalances, goalDelta, placeholderOnly, type AppData } from './data'
 import { db, WOOL, type Frequency, type Kind, type Transaction } from './db'
 import { createSeries } from './recurring'
 import { FigFruit } from './Goals'
 import { Calculator } from './Calculator'
 import { builtinName, dateFmt, decimalSep, t, type Key } from './i18n'
 import { convertMinor, fetchRate, formatMoney, fromMinor, moneyParts, parseInput } from './money'
+import { hasOpening } from './opening'
 import { rankCategories } from './suggest'
 
 type Mode = 'expense' | 'income' | 'goal' | 'transfer' | 'opening'
@@ -261,6 +262,8 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
 
   async function save() {
     if (!selected) return setStep('pick')
+    // Archivio dell'account non ancora scaricato: valuta e conti a schermo sono quelli predefiniti.
+    if (placeholderOnly(data)) return setError(t('sync.archivePending'))
     const amount = parseInput(input, currency.decimals) * (mode === 'opening' && negative ? -1 : 1)
     if (amount === 0 || (mode !== 'opening' && amount < 0)) return setError(t('err.amount'))
     if (kind === 'transfer' && selected === accountId) return setError(t('err.sameAccount'))
@@ -343,7 +346,9 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
     return balance
   })()
   const overdraft =
-    accountLeft !== null && amountMinor > 0 && new Date(date).getTime() <= Date.now() && accountLeft - amountMinor < 0 ? accountLeft - amountMinor : null
+    accountLeft !== null && outAccount && (hasOpening(outAccount.id, data.transactions) || data.setup === 'done') && amountMinor > 0 && new Date(date).getTime() <= Date.now() && accountLeft - amountMinor < 0
+      ? accountLeft - amountMinor
+      : null
   // Quanto resta in un gomitolo, senza contare il movimento che si sta modificando.
   const goalLeft = (id: string) => (balances.get(id) ?? 0) - (editing ? goalDelta(editing, id) : 0)
   // "Usa tutto": il gomitolo da cui si paga o si riprende, altrimenti il conto da cui escono i soldi.

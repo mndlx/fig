@@ -50,7 +50,12 @@ function seed(lang) {
   return new Promise((res, rej) => {
     const q = indexedDB.open('fig')
     q.onsuccess = () => {
-      const tx = q.result.transaction(['transactions', 'goals'], 'readwrite')
+      const tx = q.result.transaction(['transactions', 'goals', 'settings', 'accounts'], 'readwrite')
+      // La valuta di partenza dell'app viene stimata dal computer (fuso e lingua): qui la si fissa in euro,
+      // come gli importi di esempio, e il riquadro iniziale risulta già completato.
+      tx.objectStore('settings').put({ id: 'main', mainCurrency: 'EUR', setup: 'done' })
+      tx.objectStore('accounts').put({ id: 'acc-main', name: '', key: 'main', currency: 'EUR', initialBalance: 0, initialMain: 0, order: 0, archived: false })
+      tx.objectStore('accounts').put({ id: 'acc-cash', name: '', key: 'cash', currency: 'EUR', initialBalance: 0, initialMain: 0, order: 1, archived: false })
       for (const t of txs) tx.objectStore('transactions').put(t)
       for (const g of goals) tx.objectStore('goals').put(g)
       tx.oncomplete = () => (q.result.close(), res())
@@ -67,9 +72,10 @@ for (const lang of ['it', 'en']) {
   await page.evaluate((l) => {
     localStorage.clear()
     localStorage.setItem('fig-lang', l)
-    localStorage.setItem('fig-onboarding', '1')
   }, lang)
-  await page.evaluate(() => new Promise((r) => { const q = indexedDB.deleteDatabase('fig'); q.onsuccess = q.onerror = q.onblocked = () => r() }))
+  // L'app ricarica la pagina quando il suo database viene cancellato da fuori: la chiamata può interrompersi a metà.
+  await page.evaluate(() => new Promise((r) => { const q = indexedDB.deleteDatabase('fig'); q.onsuccess = q.onerror = q.onblocked = () => r() })).catch(() => {})
+  await wait(500)
   await page.reload()
   await wait(3000)
   await page.evaluate(seed, lang)

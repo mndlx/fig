@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { detectDecimal, guessColumns, parseAmount, parseCsv, parseDate } from './csv'
-import type { AppData } from './data'
+import { placeholderOnly, type AppData } from './data'
 import { db, openingId, type Category, type ImportProfile, type Rule, type Transaction } from './db'
 import { IconLeft } from './icons'
 import { dayStart, matchExisting, openingForHistory, suggest, type ExistingMatch, type RowKind } from './importLogic'
@@ -261,6 +261,8 @@ export function ImportCsv({ data, onDone }: Props) {
 
   async function confirm() {
     if (!mapping || !account) return
+    // Archivio dell'account non ancora scaricato: i conti a schermo sono quelli predefiniti.
+    if (placeholderOnly(data)) return setError(t('sync.archivePending'))
     const rateValue = foreign ? Number(rate.replace(',', '.')) : 1
     if (!(rateValue > 0)) return setError(t('err.rate', { from: currency.code, to: mainCurrency.code }))
     const batch = crypto.randomUUID()

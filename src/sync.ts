@@ -45,9 +45,10 @@ const REMOTE = Symbol('remote')
 
 function isQuiet(): boolean {
   if (openState.opening) return true
+  // Dati iniziali e aggiornamenti di schema nascono mentre il database è "in apertura" (sopra);
+  // qui restano le transazioni segnate come arrivate dal server.
   const tx = Dexie.currentTransaction as (Transaction & { [REMOTE]?: boolean }) | null
-  // La creazione e gli aggiornamenti di schema (dati iniziali) non si sincronizzano.
-  return !!tx && (tx[REMOTE] === true || tx.mode === 'versionchange')
+  return !!tx && tx[REMOTE] === true
 }
 
 /**
@@ -125,28 +126,49 @@ async function applyRemote(changes: RemoteChange[], skip: Set<string>) {
 }
 
 /**
- * Primo giro su un dispositivo: si scarica tutto l'archivio del server (che vince sui dati
- * predefiniti locali), poi si mettono in coda solo i record che esistono solo qui.
+ * Primo giro su un dispositivo: si scarica tutto l'archivio dell'account, poi lo si applica in un
+ * colpo solo. Qui il server vince anche sulle modifiche in coda per i record che conosce: sono
+ * state fatte guardando i dati predefiniti (valuta stimata, conti vuoti), non quelli dell'utente,
+ * e inviarle sovrascriverebbe su ogni dispositivo impostazioni e saldi iniziali veri.
+ * I record che esistono solo qui vanno in coda e vengono caricati.
+ *
+ * Tutto in un'unica transazione, compresa la fine dell'adozione: se lo scaricamento si interrompe
+ * a metà il dispositivo resta com'era (mai mezzo archivio a schermo, niente da rifare sopra a
+ * modifiche fatte nel frattempo), e una modifica fatta subito dopo trova già la coda a posto.
  */
 async function adopt() {
-  const remoteKeys = new Set<string>()
+  const archive: RemoteChange[] = []
   let since = 0
   let more = true
   while (more) {
     const res = await api<{ rev: number; more: boolean; changes: RemoteChange[] }>('/api/sync', { since, changes: [] })
-    const pending = new Set((await db.syncQueue.toArray()).map((q) => `${q.tbl}|${q.id}`))
-    await applyRemote(res.changes, pending)
-    for (const c of res.changes) remoteKeys.add(`${c.tbl}|${c.id}`)
+    archive.push(...res.changes)
     since = res.rev
     more = res.more
   }
-  await db.syncMeta.put({ key: 'rev', value: since })
-  await queueLocalOnly(remoteKeys)
-  await db.syncMeta.delete('adopt')
+  await db.transaction('rw', [...SYNCED_TABLES.map((t) => db.table(t)), db.syncQueue, db.syncMeta], async () => {
+    quietCurrentTransaction()
+    // Un'altra finestra dell'app può aver finito l'adozione mentre questa scaricava: riapplicare adesso
+    // l'archivio cancellerebbe le modifiche fatte nel frattempo. Si prosegue col giro normale.
+    if (!(await db.syncMeta.get('adopt'))) return
+    const remoteKeys = new Set<string>()
+    for (const c of archive) {
+      if (!SYNCED_TABLES.includes(c.tbl)) continue
+      const table = db.table(c.tbl)
+      if (c.deleted) await table.delete(c.id)
+      else if (c.data) await table.put(c.data)
+      await db.syncQueue.delete([c.tbl, c.id])
+      remoteKeys.add(`${c.tbl}|${c.id}`)
+    }
+    await db.syncMeta.put({ key: 'rev', value: since })
+    await queueLocalOnly(remoteKeys)
+    await db.syncMeta.delete('adopt')
+  })
 }
 
 async function refreshPending() {
-  setStatus({ pending: await db.syncQueue.count() })
+  // Arriva anche dalla scia di una transazione dell'app, che non comprende la coda: si conta fuori da quella.
+  setStatus({ pending: await Dexie.ignoreTransaction(() => db.syncQueue.count()) })
 }
 
 // ——— Scambio col server ———
@@ -191,13 +213,19 @@ export async function syncNow(): Promise<void> {
   running = true
   setStatus({ state: 'syncing' })
   try {
-    if (await db.syncMeta.get('adopt')) await adopt()
+    if (await db.syncMeta.get('adopt')) {
+      await adopt()
+      // L'adozione riempie la coda coi dati che esistono solo qui: il conteggio "in attesa" lo deve sapere subito.
+      await refreshPending()
+    }
     let more = true
     while (more) {
       const queue = await db.syncQueue.limit(BATCH).toArray()
       const changes = await Promise.all(
         queue.map(async (q) => {
-          const data = q.deleted ? undefined : await db.table(q.tbl).get(q.id)
+          // Si invia il record com'è adesso, non com'era quando è finito in coda: una cancellazione superata
+          // (record tornato, per esempio dall'archivio appena scaricato) non deve cancellarlo sul server.
+          const data = await db.table(q.tbl).get(q.id)
           return data ? { tbl: q.tbl, id: q.id, data } : { tbl: q.tbl, id: q.id, deleted: true }
         }),
       )
@@ -245,26 +273,34 @@ let started = false
  * i dati di un altro utente vengono cancellati; se c'erano dati senza proprietario
  * (app usata prima del login) vengono adottati e caricati sul server.
  */
-export async function startSync(user: User) {
+export async function startSync(user: User): Promise<{ adopting: boolean; first: Promise<void> } | null> {
   const owner = await db.syncMeta.get('owner')
   if (owner && owner.value !== user.sub) {
     await db.delete()
     location.reload()
-    return
+    return null
   }
   if (!owner) {
-    await db.syncMeta.put({ key: 'owner', value: user.sub })
     // Primo accesso su questo dispositivo: al primo giro si scarica tutto e si caricano solo i dati che il server non ha.
-    await db.syncMeta.put({ key: 'adopt', value: 1 })
+    // Le due righe nascono insieme: un proprietario senza "adopt" farebbe passare i dati predefiniti per quelli dell'utente.
+    await db.syncMeta.bulkPut([
+      { key: 'owner', value: user.sub },
+      { key: 'adopt', value: 1 },
+    ])
   }
+  // Vero finché l'archivio dell'account non è stato scaricato qui: chi avvia l'app aspetta `first` prima di mostrarla.
+  const adopting = !!(await db.syncMeta.get('adopt'))
+  // Una sessione partita senza rete avvia la sincronizzazione più tardi: timer e ascoltatori si registrano una volta sola.
+  if (started) return { adopting, first: syncNow() }
   started = true
   await refreshPending()
-  void syncNow()
+  const first = syncNow()
   window.setInterval(() => void syncNow(), 60_000)
   window.addEventListener('online', () => void syncNow())
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') void syncNow()
   })
+  return { adopting, first }
 }
 
 /** All'uscita i dati locali vengono cancellati: restano sul server e tornano al prossimo accesso. */

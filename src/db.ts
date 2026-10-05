@@ -1,4 +1,5 @@
 ﻿import Dexie, { type EntityTable, type Table } from 'dexie'
+import { guessCurrency } from './currencyGuess'
 
 /**
  * - expense / income: uscite ed entrate
@@ -34,6 +35,12 @@ export interface Currency {
 export interface Settings {
   id: 'main'
   mainCurrency: string
+  /**
+   * Riquadro del primo avvio (valuta e saldi iniziali): "later" se rimandato, "done" se chiuso
+   * o completato. Assente finché non si è risposto. Sta qui, e non nel browser, così segue
+   * l'utente sugli altri dispositivi e sparisce con i suoi dati.
+   */
+  setup?: 'later' | 'done'
 }
 
 export interface Account {
@@ -295,21 +302,43 @@ db.version(6).stores({
   transactions: 'id, date, categoryId, accountId, goalId, recurringId',
 })
 
-db.on('ready', () => {
-  openState.opening = false
+// Terzo argomento: l'aggancio resta attivo a ogni apertura. Senza, vale solo per la prima della pagina
+// e dopo una ricreazione del database (vedi "populate") lo stato resterebbe fermo su "in apertura".
+db.on(
+  'ready',
+  () => {
+    openState.opening = false
+  },
+  true,
+)
+
+// Un'altra finestra dell'app ha cancellato il database (uscita, cancellazione dei dati): questa ricarica la
+// pagina e riparte dall'avvio. Altrimenti lo ricreerebbe coi dati predefiniti restando "già sincronizzata",
+// e una risposta al riquadro iniziale finirebbe sopra i dati veri dell'account.
+db.on('versionchange', (event) => {
+  if (event.newVersion !== null) return
+  db.close()
+  location.reload()
+  return false
 })
 
 /**
  * Dati iniziali. Gli ID sono fissi (es. "cat-groceries") così due dispositivi dello
  * stesso utente hanno le stesse categorie predefinite invece di doppioni.
- * Girano nella transazione di creazione del database, che la sincronizzazione ignora.
+ * La sincronizzazione li ignora perché nascono mentre il database è "in apertura" (openState).
  */
 db.on('populate', (tx) => {
-  tx.table('settings').add({ id: 'main', mainCurrency: 'EUR' })
+  // Anche quando il database viene ricreato senza ricaricare la pagina (dati locali cancellati e poi
+  // riaperti): i dati predefiniti non sono modifiche dell'utente. Torna falso a database pronto.
+  openState.opening = true
+  // Valuta di partenza stimata dal dispositivo (fuso orario e lingua): la si conferma nel riquadro iniziale.
+  // Queste scritture non vanno in coda: su un secondo dispositivo vince comunque la copia del server.
+  const main = guessCurrency()
+  tx.table('settings').add({ id: 'main', mainCurrency: main })
   tx.table('currencies').bulkAdd(DEFAULT_CURRENCIES)
   tx.table('accounts').bulkAdd([
-    { id: 'acc-main', name: '', key: 'main', currency: 'EUR', initialBalance: 0, initialMain: 0, order: 0, archived: false },
-    { id: 'acc-cash', name: '', key: 'cash', currency: 'EUR', initialBalance: 0, initialMain: 0, order: 1, archived: false },
+    { id: 'acc-main', name: '', key: 'main', currency: main, initialBalance: 0, initialMain: 0, order: 0, archived: false },
+    { id: 'acc-cash', name: '', key: 'cash', currency: main, initialBalance: 0, initialMain: 0, order: 1, archived: false },
   ])
   tx.table('categories').bulkAdd(
     SEED_CATEGORIES.map(([key, kind, color, icon], order) => ({

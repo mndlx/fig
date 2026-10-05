@@ -13,6 +13,7 @@ interface Props {
   monthOffset: number
   onOpen: (tx: Transaction) => void
   onPickMonth: (offset: number) => void
+  onAdd: () => void
 }
 
 const DAY = 86_400_000
@@ -53,7 +54,7 @@ function scaleCap(values: number[]): number {
 
 type Insight = { key: string; text: string; tone?: 'up' | 'down' }
 
-export function Trama({ data, view, monthOffset, onOpen, onPickMonth }: Props) {
+export function Trama({ data, view, monthOffset, onOpen, onPickMonth, onAdd }: Props) {
   const [mode, setMode] = useState<'month' | 'year'>('month')
   const [focus, setFocus] = useState<string | null>(null)
   const [pickedDay, setPickedDay] = useState<number | null>(null)
@@ -204,6 +205,8 @@ export function Trama({ data, view, monthOffset, onOpen, onPickMonth }: Props) {
   const today = new Date()
   const prevName = longMonth().format(new Date(month.y, month.m - 1, 1))
   const dayTx = pickedDay !== null ? view.monthTx.filter((tx) => new Date(tx.date).getDate() === pickedDay) : []
+  // Un mese che ha solo saldi iniziali non ha ancora niente da raccontare.
+  const bare = mode === 'month' && view.monthTx.every((tx) => tx.kind === 'opening')
   const legend = mode === 'month' ? month.legend : year.legend
   const legendTotal = mode === 'month' ? month.total : year.spent
 
@@ -230,7 +233,17 @@ export function Trama({ data, view, monthOffset, onOpen, onPickMonth }: Props) {
         </button>
       </div>
 
-      {mode === 'month' ? (
+      {bare ? (
+        <section className="card empty-weave">
+          <p className="empty-title">{t('weave.bare', { month: longMonth().format(view.start) })}</p>
+          <p className="muted small">{t('weave.bareBody')}</p>
+          {view.isCurrent && (
+            <button className="primary" onClick={onAdd}>
+              {t('empty.cta')}
+            </button>
+          )}
+        </section>
+      ) : mode === 'month' ? (
         <>
           <section className="card stats">
             {stat(t('weave.stat.spent'), money(month.spent), month.scheduled > 0 ? t('weave.scheduled', { amount: money(month.scheduled) }) : undefined)}
@@ -378,7 +391,7 @@ export function Trama({ data, view, monthOffset, onOpen, onPickMonth }: Props) {
         </>
       )}
 
-      {legend.length > 0 ? (
+      {bare ? null : legend.length > 0 ? (
         <section className="card">
           <div className="card-head">
             <h2 className="card-title">{t('weave.categories')}</h2>

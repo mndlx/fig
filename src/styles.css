@@ -3,7 +3,7 @@
   --surface: #fdfbf7;
   --key: #ebe4d9;
   --ink: #1e1a17;
-  --muted: #8a8178;
+  --muted: #6b625a;
   --line: rgba(30, 26, 23, 0.1);
   --thread: #4a3d45;
   --positive: #4d7d4f;
@@ -2951,7 +2951,7 @@ button.hero-account:active {
   font-variant-numeric: tabular-nums;
   line-height: 1.6;
 }
-.rec-input {
+.input.rec-input {
   font-family: var(--serif);
   font-size: 22px;
   font-variant-numeric: tabular-nums;
@@ -3317,4 +3317,260 @@ a.profile-edit {
 .import-early .secondary {
   background: var(--surface);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 16%, transparent);
+}
+
+/* ——— Primo avvio ——— */
+
+/* Testo solo per i lettori di schermo */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+h1.wordmark {
+  margin: 0;
+}
+
+/* Campi: 16px evita lo zoom di iOS al tocco, 44px per il dito, bordo che stacca dallo sfondo. */
+.field input,
+.field select,
+.input {
+  font-size: 16px;
+  min-height: 44px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 45%, transparent);
+}
+.field input:focus-visible,
+.field select:focus-visible,
+.input:focus-visible {
+  outline: 2px solid var(--brand-text);
+  outline-offset: 1px;
+}
+.field input[aria-invalid='true'],
+.input[aria-invalid='true'] {
+  box-shadow: inset 0 0 0 1.5px var(--danger);
+}
+button.primary:not(.slim),
+button.secondary:not(.slim) {
+  min-height: 44px;
+}
+.form-actions {
+  gap: 12px;
+}
+
+/* Riquadro iniziale: valuta e saldi di partenza */
+.onb-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.onb-head .empty-title {
+  margin: 0;
+  font-weight: 400;
+}
+.onb-head .icon-btn {
+  margin: -6px -8px 0 0;
+  width: 44px;
+  height: 44px;
+}
+.onb-body {
+  margin: 4px 0 14px;
+  line-height: 1.45;
+}
+.onb-currencies {
+  justify-content: flex-start;
+}
+.onb-currencies .ctx {
+  min-height: 44px;
+  padding: 0 14px;
+  font-size: 14px;
+}
+.onb-currencies .ctx .muted {
+  font-weight: 400;
+}
+.onb-custom {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  align-items: end;
+  margin-top: 8px;
+}
+.onb-custom .field input,
+.onb-custom .field select {
+  min-width: 0;
+}
+.onb-custom .secondary {
+  grid-column: 1 / -1;
+}
+.onb-amount {
+  display: flex;
+  gap: 8px;
+}
+.onb-amount input {
+  flex: 1;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+.onb-sign {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 45%, transparent);
+  color: var(--muted);
+  font-size: 18px;
+}
+.onb-sign[aria-pressed='true'] {
+  color: var(--danger);
+  box-shadow: inset 0 0 0 1.5px var(--danger);
+}
+.onb-sign:focus-visible,
+.onb-currencies .ctx:focus-visible {
+  outline: 2px solid var(--brand-text);
+  outline-offset: 1px;
+}
+.onb-preview {
+  margin: 0;
+  min-height: 1.35em;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.onb-note,
+.onb-fixed,
+.onb-privacy {
+  margin: 0;
+  line-height: 1.45;
+}
+.onb-privacy a {
+  color: inherit;
+}
+
+/* Avviso: archivio dell'account non ancora scaricato */
+.card.notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 4px;
+}
+.card.notice p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+/* Card principale: spiegazione del disponibile e saldo iniziale da impostare */
+.hero:focus {
+  outline: none;
+}
+.hero:focus-visible {
+  outline: 2px solid var(--brand-text);
+  outline-offset: 2px;
+}
+.hero-label {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.hero .info-btn {
+  color: inherit;
+  padding: 12px;
+  margin: -12px -6px;
+}
+.hero .hero-note {
+  margin: 6px 0 4px;
+  font-size: 13px;
+  line-height: 1.4;
+  opacity: 0.85;
+}
+.hero .hero-setup {
+  margin: 12px 0 0;
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+/* Stati vuoti con un passo successivo, legenda dei primi movimenti */
+.empty .primary,
+.empty-weave .primary {
+  margin-top: 12px;
+}
+.thread-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 16px;
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.thread-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.thread-legend svg {
+  overflow: visible;
+}
+
+/* Meno movimento per chi lo chiede al sistema: pannelli, messaggi e nodi compaiono senza animazione */
+@media (prefers-reduced-motion: reduce) {
+  .backdrop,
+  .sheet,
+  .toast,
+  .info-pop,
+  .fresh .knot {
+    animation: none;
+  }
+  .dock-add,
+  .dock-tab,
+  .chip {
+    transition: none;
+  }
+}
+
+/* Riquadro iniziale: ritocchi */
+.onboarding {
+  /* Riaperto a mano va in vista sotto la barra fissa, non dietro. */
+  scroll-margin-top: calc(64px + env(safe-area-inset-top));
+}
+.onb-preview:empty {
+  /* Resta nella pagina per i lettori di schermo, ma senza occupare una riga vuota. */
+  min-height: 0;
+  margin-top: -12px;
+}
+
+/* Schermi stretti (320px): la barra in alto ci sta senza scorrere di lato */
+@media (max-width: 359px) {
+  /* Solo la barra principale (marchio, mese, azioni): le pagine interne hanno spazio. */
+  .bar:has(.bar-actions) {
+    gap: 0;
+  }
+  .bar .wordmark {
+    font-size: 21px;
+    gap: 4px;
+  }
+  .month-label {
+    min-width: 0;
+    padding: 6px 0;
+    font-size: 13.5px;
+  }
+  .bar .month-nav .icon-btn,
+  .bar .bar-actions .icon-btn {
+    width: 30px;
+  }
+}
+
+/* Allineamento di un conto senza saldo iniziale: saldo di partenza oppure differenza di oggi */
+.align-kind {
+  justify-content: flex-start;
+}
+.align-kind .ctx {
+  min-height: 40px;
+  padding: 0 14px;
 }

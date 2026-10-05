@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import App from './App'
 import { initAuth, isLocalOnly, setLocalOnly, signIn } from './auth'
 import { db } from './db'
-import { t } from './i18n'
+import { getLang, t } from './i18n'
 import { IconFig } from './icons'
 import { materializeRecurring } from './recurring'
 import { startSync, stopSyncQueue } from './sync'
@@ -19,59 +19,133 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
 
 // Tema scelto dall'utente, prima del primo disegno.
 applyTheme(readTheme())
+// Lingua della pagina già dalle prime schermate (attesa, benvenuto), non solo quando parte l'app.
+document.documentElement.lang = getLang()
 
 const root = createRoot(document.getElementById('root')!)
 
-function Gate({ kind }: { kind: 'loading' | 'offline' | 'error' | 'server-down' }) {
-  const message = kind === 'offline' ? t('auth.offline') : kind === 'server-down' ? t('auth.serverDown') : t('auth.error')
+/** Quanto si aspetta il primo scaricamento dell'archivio prima di aprire comunque l'app (che avvisa e riprova da sola). */
+const FIRST_SYNC_WAIT = 10_000
+
+function Wordmark() {
   return (
-    <div className="gate">
-      <span className="wordmark big">
-        <IconFig />
-        fig
-      </span>
-      {kind !== 'loading' && (
-        <>
-          <p className="muted">{message}</p>
-          <button className="primary" onClick={() => (kind === 'error' ? signIn() : location.reload())}>
-            {t('auth.retry')}
-          </button>
-        </>
-      )}
-    </div>
+    <h1 className="wordmark big">
+      <IconFig />
+      fig
+    </h1>
   )
 }
 
-/** Primo avvio senza sessione: si sceglie se usare FIG solo su questo dispositivo o accedere. */
-function Welcome() {
+function Gate({ kind }: { kind: 'loading' | 'loading-data' | 'offline' | 'error' | 'server-down' }) {
+  if (kind === 'loading' || kind === 'loading-data') {
+    return (
+      <main className="gate">
+        <Wordmark />
+        {/* L'avvio normale dura un attimo: il testo si vede solo quando c'è da scaricare l'archivio. */}
+        <p className={kind === 'loading-data' ? 'muted' : 'sr-only'} role="status">
+          {t(kind === 'loading-data' ? 'auth.loadingData' : 'auth.loading')}
+        </p>
+      </main>
+    )
+  }
+  const message = kind === 'offline' ? t('auth.offline') : kind === 'server-down' ? t('auth.serverDown') : t('auth.error')
   return (
-    <div className="gate welcome">
-      <span className="wordmark big">
-        <IconFig />
-        fig
-      </span>
+    <main className="gate">
+      <Wordmark />
+      <p className="muted" role="alert">
+        {message}
+      </p>
+      {kind === 'server-down' && import.meta.env.DEV && <p className="muted small">Dev: start the API with “npm run dev” in the fig folder.</p>}
+      <button className="primary" onClick={() => (kind === 'error' ? signIn() : location.reload())}>
+        {t('auth.retry')}
+      </button>
+    </main>
+  )
+}
+
+/**
+ * Primo avvio senza sessione: due righe su cos'è FIG prima della pagina di accesso.
+ * Se il server lo permette si può anche partire senza account, coi dati solo sul dispositivo.
+ */
+function Welcome({ localMode }: { localMode: boolean }) {
+  return (
+    <main className="gate welcome">
+      <Wordmark />
       <p className="welcome-tagline">{t('welcome.tagline')}</p>
       <div className="welcome-choices">
-        <button
-          className="primary wide"
-          onClick={() => {
-            setLocalOnly(true)
-            void boot()
-          }}
-        >
-          {t('welcome.local')}
-        </button>
-        <p className="muted small">{t('welcome.localHint')}</p>
-        <button className="secondary wide" onClick={signIn}>
-          {t('welcome.signIn')}
-        </button>
-        <p className="muted small">{t('welcome.signInHint')}</p>
+        {localMode ? (
+          <>
+            <button
+              className="primary wide"
+              onClick={() => {
+                setLocalOnly(true)
+                void boot()
+              }}
+            >
+              {t('welcome.local')}
+            </button>
+            <p className="muted small">{t('welcome.localHint')}</p>
+            <button className="secondary wide" onClick={signIn}>
+              {t('welcome.signIn')}
+            </button>
+            <p className="muted small">{t('welcome.signInHint')}</p>
+          </>
+        ) : (
+          <>
+            <button className="primary wide" onClick={signIn}>
+              {t('welcome.signIn')}
+            </button>
+            <p className="muted small">{t('welcome.accountHint')}</p>
+          </>
+        )}
       </div>
       <a className="welcome-privacy" href="/privacy.html">
         {t('welcome.privacy')}
       </a>
-    </div>
+    </main>
   )
+}
+
+function renderApp(offline: boolean, local: boolean) {
+  root.render(
+    <StrictMode>
+      <App offline={offline} local={local} />
+    </StrictMode>,
+  )
+}
+
+/**
+ * Sessione partita senza rete, o col server irraggiungibile: appena torna raggiungibile si riprende
+ * la sincronizzazione senza ricaricare la pagina (prima restava ferma fino al riavvio dell'app).
+ */
+function resumeWhenReachable() {
+  let busy = false
+  let timer = 0
+  const stop = () => {
+    window.removeEventListener('online', check)
+    document.removeEventListener('visibilitychange', check)
+    window.clearInterval(timer)
+  }
+  async function check() {
+    if (busy || !navigator.onLine || document.visibilityState !== 'visible') return
+    busy = true
+    try {
+      const auth = await initAuth()
+      if (auth.status === 'signed-in') {
+        stop()
+        if (await startSync(auth.user)) renderApp(false, false)
+      } else if (auth.status === 'signed-out') {
+        // Sessione scaduta nel frattempo: si rientra. Le modifiche restano sul dispositivo e partono dopo l'accesso.
+        stop()
+        signIn()
+      }
+    } finally {
+      busy = false
+    }
+  }
+  window.addEventListener('online', check)
+  document.addEventListener('visibilitychange', check)
+  timer = window.setInterval(check, 30_000)
 }
 
 async function boot() {
@@ -83,32 +157,37 @@ async function boot() {
   if (auth.status === 'signed-in') {
     // Accesso fatto: i dati usati senza account vengono caricati sul proprio archivio (vedi startSync).
     setLocalOnly(false)
-    await startSync(auth.user)
+    const sync = await startSync(auth.user)
+    // Sul dispositivo c'erano i dati di un altro utente: sono stati cancellati e la pagina si ricarica.
+    if (!sync) return
+    if (sync.adopting) {
+      // Primo accesso su questo dispositivo: l'app si apre sui dati dell'utente, non su quelli predefiniti.
+      root.render(<Gate kind="loading-data" />)
+      await Promise.race([sync.first, new Promise((resolve) => window.setTimeout(resolve, FIRST_SYNC_WAIT))])
+    }
   } else if (owner) {
-    // Dispositivo già collegato a un account: sessione scaduta → si rientra; senza rete si usano i dati locali.
+    // Dispositivo già collegato a un account: sessione scaduta → si rientra.
     if (auth.status === 'signed-out') return signIn()
-    if (auth.status !== 'offline') return root.render(<Gate kind={auth.status} />)
+    // Senza rete, o col server che non risponde, si lavora sui dati del dispositivo e si riprende appena possibile.
     offline = true
+    resumeWhenReachable()
   } else if (isLocalOnly() && (auth.status !== 'signed-out' || auth.localMode)) {
     // Senza account: niente coda di sincronizzazione, i dati restano solo nel browser.
     local = true
     await stopSyncQueue()
   } else if (auth.status === 'signed-out') {
-    // Modalità senza account spenta sul server: si va dritti al login (i dati locali restano e vengono caricati dopo l'accesso).
-    if (!auth.localMode) return signIn()
-    return root.render(<Welcome />)
+    // Mai entrati da questo dispositivo: prima due righe di benvenuto, poi l'accesso
+    // (i dati locali rimasti da prima restano e vengono caricati dopo l'accesso).
+    return root.render(<Welcome localMode={auth.localMode} />)
   } else {
     return root.render(<Gate kind={auth.status} />)
   }
   // Scadenze delle serie ricorrenti fino a fine mese. Con l'accesso attivo le genera la sincronizzazione
   // dopo aver scaricato le novità (così un dispositivo rimasto indietro non sovrascrive modifiche fatte altrove);
-  // offline e senza account si generano subito dai dati locali.
-  if (offline || local) void materializeRecurring()
-  root.render(
-    <StrictMode>
-      <App offline={offline} local={local} />
-    </StrictMode>,
-  )
+  // senza rete e senza account si generano subito dai dati locali. Col server irraggiungibile ma la rete
+  // presente si aspetta: sta per tornare, e la ripresa le genera dopo aver scaricato.
+  if (local || auth.status === 'offline') void materializeRecurring()
+  renderApp(offline, local)
 }
 
 void boot()

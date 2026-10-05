@@ -37,6 +37,8 @@ interface Props {
   accounts: Account[]
   goals: Goal[]
   freshId: string | null
+  /** Primi movimenti: sotto il ramo si spiega cosa sono foglie, gemme e fichi. */
+  legend?: boolean
   onOpen: (tx: Transaction) => void
 }
 
@@ -200,7 +202,9 @@ export function ThreadView(props: Props) {
         out.push({ type: 'summary', key: day.key, date: day.date, txs: day.items.map((i) => i.tx), before: day.start, after: day.end, spent: day.spent })
       }
     }
-    out.push({ type: 'start', balance: startBalance })
+    // In fondo: quanto si è portato dal mese prima. A zero la riga serve solo come base di un ramo
+    // che non ne ha un'altra: non in un mese vuoto, né in quello che parte dal saldo iniziale.
+    if (startBalance !== 0 || (monthTx.length > 0 && !monthTx.some((tx) => tx.kind === 'opening'))) out.push({ type: 'start', balance: startBalance })
     return out
   }, [startBalance, monthTx, forecast, dayState, freshDay, freshDismissed, freshId])
 
@@ -409,10 +413,12 @@ export function ThreadView(props: Props) {
   return (
     <div className="thread">
       {monthTx.length > 0 && searchBar}
-      {rows.map((row) => {
+      {rows.map((row, index) => {
         const h = ROW[row.type]
         const y = offset
         offset += h
+        // Ultima riga senza il riporto sotto: il ramo finisce sul nodo, non prosegue nel vuoto.
+        const last = index === rows.length - 1
 
         if (row.type === 'forecast') {
           // In cima: il filo "futuro", tratteggiato, che scende verso oggi.
@@ -515,7 +521,7 @@ export function ThreadView(props: Props) {
             <button key={`sum-${row.key}`} className="row row-summary" style={{ height: h }} onClick={() => toggle(row.key, false)} aria-expanded="false">
               <svg width={LANE} height={h} aria-hidden="true">
                 <path d={pathBetween(0, mid, y)} stroke={tone(row.after)} strokeWidth={width(row.after)} fill="none" strokeLinecap="round" />
-                <path d={pathBetween(mid, h, y)} stroke={tone(row.before)} strokeWidth={width(row.before)} fill="none" strokeLinecap="round" />
+                {!last && <path d={pathBetween(mid, h, y)} stroke={tone(row.before)} strokeWidth={width(row.before)} fill="none" strokeLinecap="round" />}
                 <g className="knot">
                   {colors.map((c, i) => (
                     <circle key={c} cx={x - 5 + i * 5} cy={mid} r={6} fill={c} stroke="var(--bg)" strokeWidth={2} />
@@ -556,7 +562,7 @@ export function ThreadView(props: Props) {
             <svg width={LANE} height={h} aria-hidden="true">
               {/* Dall'alto (dopo il movimento) al basso (prima): il ramo sotto è quello di prima. */}
               <path d={pathBetween(0, mid, y)} stroke={tone(row.after)} strokeWidth={width(row.after)} fill="none" strokeLinecap="round" />
-              <path d={pathBetween(mid, h, y)} stroke={tone(row.before)} strokeWidth={width(row.before)} fill="none" strokeLinecap="round" />
+              {!last && <path d={pathBetween(mid, h, y)} stroke={tone(row.before)} strokeWidth={width(row.before)} fill="none" strokeLinecap="round" />}
               {tx.kind === 'opening' ? (
                 <g className="knot">
                   <circle cx={x} cy={mid} r={10} fill="var(--bg)" stroke="var(--branch)" strokeWidth={2.5} />
@@ -588,6 +594,28 @@ export function ThreadView(props: Props) {
           </button>
         )
       })}
+      {props.legend && monthTx.some((tx) => tx.kind !== 'opening') && (
+        <p className="thread-legend">
+          <span>
+            <svg width="22" height="14" viewBox="0 0 22 14" aria-hidden="true">
+              <Leaf x={2} y={9} length={18} side={1} color="var(--leaf)" />
+            </svg>
+            {t('thread.legendLeaf')}
+          </span>
+          <span>
+            <svg width="18" height="14" viewBox="0 0 18 14" aria-hidden="true">
+              <Bud x={6} y={9} r={4} color="var(--positive)" />
+            </svg>
+            {t('thread.legendBud')}
+          </span>
+          <span>
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+              <FigKnot x={8} y={8} size={15} color="var(--fig-soft)" />
+            </svg>
+            {t('thread.legendFig')}
+          </span>
+        </p>
+      )}
     </div>
   )
 }
