@@ -10,11 +10,13 @@ function stamp(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-/** Backup completo in JSON, ripristinabile. */
-export async function exportJson() {
+/** Backup completo in JSON, ripristinabile. Restituisce il nome del file scaricato. */
+export async function exportJson(): Promise<string> {
   const dump: Record<string, unknown[]> = {}
   for (const table of TABLES) dump[table] = await db.table(table).toArray()
-  download(`fig-backup-${stamp()}.json`, JSON.stringify({ app: 'fig', version: 4, data: dump }, null, 2), 'application/json')
+  const name = `fig-backup-${stamp()}.json`
+  download(name, JSON.stringify({ app: 'fig', version: 4, data: dump }, null, 2), 'application/json')
+  return name
 }
 
 /** Sostituisce tutti i dati con quelli del backup. */

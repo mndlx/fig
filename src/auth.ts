@@ -70,7 +70,7 @@ export async function initAuth(): Promise<AuthState> {
 }
 
 /** Il server permette l'uso senza account? (Impostazione LOCAL_MODE; nel dubbio no.) */
-async function localModeAllowed(): Promise<boolean> {
+export async function localModeAllowed(): Promise<boolean> {
   try {
     const res = await fetch('/api/config')
     return res.ok && ((await res.json()) as { localMode?: boolean }).localMode === true
@@ -87,11 +87,20 @@ export function authEnabled(): boolean {
   return mode === 'oidc'
 }
 
+/**
+ * Chiude la sessione sul server e restituisce l'indirizzo a cui andare (uscita dal servizio di identità).
+ * Lancia un errore se la richiesta non riesce: chi deve essere sicuro che la sessione sia chiusa lo sa.
+ */
+export async function endSession(): Promise<string> {
+  const res = await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+  if (!res.ok) throw new Error(`logout_${res.status}`)
+  return ((await res.json()) as { url?: string }).url ?? '/'
+}
+
 export async function signOut() {
   let url = '/'
   try {
-    const res = await fetch('/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-    url = ((await res.json()) as { url?: string }).url ?? '/'
+    url = await endSession()
   } catch {
     /* offline: si esce comunque dall'app */
   }

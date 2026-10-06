@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AddSheet, remember, type SheetPreset } from './AddSheet'
+import { ADOPT_MERGED, ADOPT_TOAST, takeNote } from './adoptionNotes'
 import { Calculator } from './Calculator'
 import { Reconcile } from './Reconcile'
 import { IconAlertTriangle, IconCalculator, IconInfoCircle } from '@tabler/icons-react'
@@ -7,7 +8,7 @@ import { accountBalance, goalBalances, placeholderOnly, signedMain, useAppData, 
 import { db, type Currency, type Goal, type Transaction } from './db'
 import { undoStartingBalances } from './firstRun'
 import { GoalDetail, GoalForm, Goals, type GoalTemplate } from './Goals'
-import { builtinName, dateFmt, getLang, readLangSetting, resolveLang, setLang, t, writeLangSetting, type LangSetting } from './i18n'
+import { builtinName, dateFmt, getLang, readLangSetting, resolveLang, setLang, t, writeLangSetting, type Key, type LangSetting } from './i18n'
 import { IconBranch, IconFig, IconFigOutline, IconGear, IconLeft, IconPlus, IconRight, IconTree } from './icons'
 import { formatMoney, moneyParts } from './money'
 import { SetupCard } from './Onboarding'
@@ -146,7 +147,14 @@ interface Toast {
   undo?: () => Promise<unknown>
 }
 
-export default function App({ offline = false, local = false }: { offline?: boolean; local?: boolean }) {
+interface AppProps {
+  offline?: boolean
+  local?: boolean
+  /** Presente quando c'è da scegliere cosa fare dei dati di questo dispositivo al primo accesso: apre la scelta. */
+  onChooseAdoption?: () => void
+}
+
+export default function App({ offline = false, local = false, onChooseAdoption }: AppProps) {
   const data = useAppData()
   const [langSetting, setLangSetting] = useState<LangSetting>(readLangSetting)
   const lang = resolveLang(langSetting)
@@ -184,7 +192,6 @@ export default function App({ offline = false, local = false }: { offline?: bool
   const [setupOpen, setSetupOpen] = useState(false)
   const [heroInfo, setHeroInfo] = useState(false)
   const heroRef = useRef<HTMLElement>(null)
-  const toastTimer = useRef<number | undefined>(undefined)
 
   const view = useMemo(() => (data ? computeMonth(data, monthOffset) : null), [data, monthOffset])
   const goalTotal = useMemo(() => {
@@ -199,7 +206,45 @@ export default function App({ offline = false, local = false }: { offline?: bool
     [data],
   )
 
-  useEffect(() => () => window.clearTimeout(toastTimer.current), [])
+  // Un messaggio sparisce da solo dopo cinque secondi; uno nuovo fa ripartire il conto.
+  const toastId = toast?.id
+  useEffect(() => {
+    if (toastId === undefined) return
+    const timer = window.setTimeout(() => setToast(null), 5000)
+    return () => window.clearTimeout(timer)
+  }, [toastId])
+  // Esito della scelta del primo accesso (dati di qui aggiunti all'account, o sostituiti, o uscita): un messaggio
+  // breve, e dopo un'unione un promemoria che resta finché non lo si chiude.
+  const [merged, setMerged] = useState<{ cur?: string } | null>(null)
+  useEffect(() => {
+    const note = takeNote(ADOPT_TOAST)
+    // "Ecco i dati del tuo account" solo se sono arrivati davvero: se lo scaricamento dopo il ricaricamento
+    // non è riuscito, l'avviso in pagina spiega già lo stato.
+    if (note === 'adopt.toastAccount') {
+      void db.syncMeta.get('adopt').then((row) => {
+        if (!row) setToast({ id: Date.now(), text: t(note) })
+      })
+    } else if (note) setToast({ id: Date.now(), text: t(note as Key) })
+    const done = takeNote(ADOPT_MERGED)
+    if (done) {
+      try {
+        setMerged(JSON.parse(done) as { cur?: string })
+      } catch {
+        setMerged({})
+      }
+    }
+  }, [])
+  // Dopo un'unione: una volta caricati, i dati "sono nel tuo account" anche se poi si modifica qualcos'altro.
+  const [mergedUp, setMergedUp] = useState(false)
+  useEffect(() => {
+    if (merged && syncStatus.pending === 0 && syncStatus.state !== 'syncing') setMergedUp(true)
+  }, [merged, syncStatus.pending, syncStatus.state])
+  // La domanda del primo accesso si è chiusa (scelta fatta, o niente più da scegliere): un "Annulla" rimasto a
+  // schermo riscriverebbe un record con le regole di prima, quindi sparisce con lei.
+  const asking = !!onChooseAdoption
+  useEffect(() => {
+    if (!asking) setToast((current) => (current?.undo ? null : current))
+  }, [asking])
   // Scorciatoia "Nuovo movimento" su un dispositivo che ha ancora solo dati predefiniti: l'inserimento non si apre.
   const blockedNow = !!data && placeholderOnly(data)
   useEffect(() => {
@@ -232,9 +277,7 @@ export default function App({ offline = false, local = false }: { offline?: bool
   }
 
   function showToast(text: string, undo?: () => Promise<unknown>) {
-    window.clearTimeout(toastTimer.current)
     setToast({ id: Date.now(), text, undo })
-    toastTimer.current = window.setTimeout(() => setToast(null), 5000)
   }
 
   // Sul dispositivo ci sono solo dati predefiniti e l'archivio dell'account deve ancora arrivare: un movimento
@@ -412,7 +455,7 @@ export default function App({ offline = false, local = false }: { offline?: bool
   if (tab === 'settings') {
     return (
       <div className="app">
-        <Settings data={data} offline={offline} local={local} langSetting={langSetting} onLangChange={changeLang} onBack={() => setTab('filo')} />
+        <Settings data={data} offline={offline} local={local} langSetting={langSetting} onLangChange={changeLang} onBack={() => setTab('filo')} onChooseAdoption={onChooseAdoption} />
         {toastEl}
       </div>
     )
@@ -463,24 +506,51 @@ export default function App({ offline = false, local = false }: { offline?: bool
           </h1>
           {data.archivePending && (
             <section className="card notice" role="status">
-              {/* Dati predefiniti in attesa dell'archivio, oppure dati veri (usati senza account) in attesa di essere caricati. */}
+              {/* Dati predefiniti in attesa di quelli dell'account, oppure dati veri (usati senza account) non ancora caricati;
+                  se anche l'account ne ha, prima di caricarli serve una scelta. */}
               <p>
                 {t(
-                  offline || syncStatus.state === 'offline'
-                    ? blocked
-                      ? 'sync.archiveOffline'
-                      : 'sync.uploadOffline'
-                    : blocked
-                      ? 'sync.archivePending'
-                      : 'sync.uploadPending',
+                  onChooseAdoption
+                    ? 'adopt.notice'
+                    : offline || syncStatus.state === 'offline'
+                      ? blocked
+                        ? 'sync.archiveOffline'
+                        : 'sync.uploadOffline'
+                      : blocked
+                        ? 'sync.archivePending'
+                        : 'sync.uploadPending',
                 )}
               </p>
-              {/* Resta al suo posto anche mentre riprova, così la pagina non salta. */}
-              {!offline && (
-                <button className="secondary" disabled={syncStatus.state === 'syncing'} onClick={() => void syncNow()}>
-                  {t('auth.retry')}
+              {onChooseAdoption ? (
+                <button className="primary" onClick={onChooseAdoption}>
+                  {t('adopt.noticeCta')}
                 </button>
+              ) : (
+                // Resta al suo posto anche mentre riprova, così la pagina non salta.
+                !offline && (
+                  <button className="secondary" disabled={syncStatus.state === 'syncing'} onClick={() => void syncNow()}>
+                    {t('auth.retry')}
+                  </button>
+                )
               )}
+            </section>
+          )}
+          {merged && (
+            <section className="card notice">
+              <p>
+                {t(mergedUp || syncStatus.pending === 0 ? 'adopt.afterMerge' : 'adopt.afterMergeLater')}
+                {merged.cur && ` ${t('adopt.afterMergeCur', { code: merged.cur })}`}
+              </p>
+              <div className="form-actions">
+                {heroAccounts.length > 0 && (
+                  <button className="secondary" onClick={() => setReconcileId(heroAccounts[0].account.id)}>
+                    {t('align.cta')}
+                  </button>
+                )}
+                <button className="primary" onClick={() => setMerged(null)}>
+                  {t('common.done')}
+                </button>
+              </div>
             </section>
           )}
           {showSetup && (

@@ -17,7 +17,9 @@ import {
   IconX,
   type Icon,
 } from '@tabler/icons-react'
+import { useLiveQuery } from 'dexie-react-hooks'
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { ADOPT_TOAST, noteForNextPage } from './adoptionNotes'
 import { exportCsv, exportJson, importJson } from './backup'
 import { CATEGORY_ICONS, CategoryIcon } from './catIcons'
 import { accountBalance, placeholderOnly, type AppData } from './data'
@@ -29,8 +31,8 @@ import { deleteSeries, updateSeries } from './recurring'
 import { builtinName, dateFmt, numberToInput, t, type Key, type LangSetting } from './i18n'
 import { IconLeft } from './icons'
 import { ImportCsv } from './ImportCsv'
-import { authEnabled, currentUser, deleteAccount, setLocalOnly, signIn, signOut } from './auth'
-import { clearLocalData, syncNow, useSyncStatus } from './sync'
+import { authEnabled, currentUser, deleteAccount, isLocalOnly, localModeAllowed, setLocalOnly, signIn, signOut } from './auth'
+import { adoptionPending, clearLocalData, haltSync, leaveAccount, resumeSync, syncNow, unlinkDevice, useSyncStatus } from './sync'
 import { convertMinor, fetchRate, formatMoney, fromMinor, parseTyped } from './money'
 import { readTheme, writeTheme, type Theme } from './theme'
 
@@ -56,6 +58,8 @@ interface Props {
   langSetting: LangSetting
   onLangChange: (setting: LangSetting) => void
   onBack: () => void
+  /** Presente quando al primo accesso c'è da scegliere cosa fare dei dati di questo dispositivo. */
+  onChooseAdoption?: () => void
 }
 
 function Header({ title, onBack, action }: { title: string; onBack: () => void; action?: ReactNode }) {
@@ -101,7 +105,7 @@ function Segmented<T extends string>({ value, options, onChange, label }: { valu
   )
 }
 
-export function Settings({ data, offline, local, langSetting, onLangChange, onBack }: Props) {
+export function Settings({ data, offline, local, langSetting, onLangChange, onBack, onChooseAdoption }: Props) {
   const [view, setView] = useState<View>({ type: 'main' })
   const main = () => setView({ type: 'main' })
 
@@ -129,7 +133,7 @@ export function Settings({ data, offline, local, langSetting, onLangChange, onBa
     case 'profile':
       return <ProfilePage onBack={main} />
     default:
-      return <SettingsMain data={data} offline={offline} local={local} langSetting={langSetting} onLangChange={onLangChange} onBack={onBack} go={setView} />
+      return <SettingsMain data={data} offline={offline} local={local} langSetting={langSetting} onLangChange={onLangChange} onBack={onBack} go={setView} onChooseAdoption={onChooseAdoption} />
   }
 }
 
@@ -141,6 +145,7 @@ function SettingsMain({
   onLangChange,
   onBack,
   go,
+  onChooseAdoption,
 }: {
   data: AppData
   offline: boolean
@@ -148,6 +153,7 @@ function SettingsMain({
   langSetting: LangSetting
   onLangChange: (s: LangSetting) => void
   onBack: () => void
+  onChooseAdoption?: () => void
   go: (v: View) => void
 }) {
   const [message, setMessage] = useState('')
@@ -184,7 +190,7 @@ function SettingsMain({
     <>
       <Header title={t('set.title')} onBack={onBack} />
 
-      <ProfileCard offline={offline} local={local} onOpen={() => go({ type: 'profile' })} />
+      <ProfileCard offline={offline} local={local} onOpen={() => go({ type: 'profile' })} onChooseAdoption={onChooseAdoption} />
 
       <p className="section-title">{t('set.money')}</p>
       <div className="list">
@@ -270,7 +276,7 @@ function SettingsMain({
 }
 
 /** In cima: chi sei e lo stato della sincronizzazione. */
-function ProfileCard({ offline, local, onOpen }: { offline: boolean; local: boolean; onOpen: () => void }) {
+function ProfileCard({ offline, local, onOpen, onChooseAdoption }: { offline: boolean; local: boolean; onOpen: () => void; onChooseAdoption?: () => void }) {
   const status = useSyncStatus()
   const user = currentUser()
 
@@ -305,6 +311,8 @@ function ProfileCard({ offline, local, onOpen }: { offline: boolean; local: bool
   else if (status.lastSync) text = t('sync.synced', { time: dateFmt({ hour: '2-digit', minute: '2-digit' }).format(status.lastSync) })
   else text = t('sync.never')
   if (status.pending > 0 && status.state !== 'syncing') text += ` · ${t('sync.pending', { n: status.pending })}`
+  // Dati da tutte e due le parti al primo accesso: finché non si sceglie non si sincronizza niente.
+  if (status.conflict) text = t('adopt.status')
 
   return (
     <div className="card profile">
@@ -324,7 +332,11 @@ function ProfileCard({ offline, local, onOpen }: { offline: boolean; local: bool
         </span>
       </button>
       {!offline && (
-        <button className={`icon-btn sync-btn${status.state === 'syncing' ? ' spinning' : ''}`} aria-label={t('set.syncNow')} onClick={() => syncNow()}>
+        <button
+          className={`icon-btn sync-btn${status.state === 'syncing' ? ' spinning' : ''}`}
+          aria-label={status.conflict && onChooseAdoption ? t('adopt.noticeCta') : t('set.syncNow')}
+          onClick={() => (status.conflict && onChooseAdoption ? onChooseAdoption() : void syncNow())}
+        >
           {status.state === 'syncing' ? <IconCloudUpload size={20} /> : <IconRefresh size={20} />}
         </button>
       )}
@@ -392,42 +404,82 @@ function ProfilePage({ onBack }: { onBack: () => void }) {
 function SignOut() {
   const status = useSyncStatus()
   const [confirm, setConfirm] = useState(false)
-  const [neverUploaded, setNeverUploaded] = useState(false)
   const [waiting, setWaiting] = useState(0)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  // Dati usati senza account e mai arrivati nell'account: uscendo restano sul dispositivo. Lo si dice prima.
+  const [keeps, setKeeps] = useState(false)
 
   async function doSignOut(force = false) {
+    if (busy) return
+    setError('')
+    // Con dati mai caricati, al primo tocco si spiega cosa succede e si chiede conferma. Se nel frattempo
+    // le cose sono cambiate (dati caricati da un giro in sottofondo) l'avviso si toglie e si ricomincia.
     if (!force) {
-      await syncNow()
-      // Dati usati senza account e mai caricati (primo scaricamento non riuscito): non sono in coda, ma esistono solo qui.
-      const onlyHere = !!(await db.syncMeta.get('adopt')) && (await db.transactions.count()) + (await db.goals.count()) + (await db.recurring.count()) > 0
-      setNeverUploaded(onlyHere)
-      // Contato dal database, non dallo stato a schermo: durante il primo caricamento quello può essere indietro.
-      const waiting = await db.syncQueue.count()
-      setWaiting(waiting)
-      if (waiting > 0 || onlyHere) return setConfirm(true)
+      const pending = await adoptionPending()
+      if (pending !== keeps) return setKeeps(pending)
     }
-    await clearLocalData()
-    signOut()
+    setBusy(true)
+    try {
+      const left = await leaveAccount(force)
+      if (left.outcome === 'kept') {
+        // Se si continua senza account (lo ha deciso lo scollegamento), all'arrivo lo si conferma.
+        if (isLocalOnly()) noteForNextPage(ADOPT_TOAST, 'adopt.toastLeave')
+        location.href = left.url
+        return
+      }
+      if (left.outcome === 'cleared') return signOut()
+      // Dispositivo già scollegato (da qui o da un'altra finestra): si riparte dall'avvio, senza cancellare niente.
+      if (left.outcome === 'unlinked') return location.reload()
+      if (left.outcome === 'confirm') {
+        // A questo punto i dati non sono più "mai caricati": resta solo l'avviso sulle modifiche in attesa.
+        setKeeps(false)
+        setWaiting(left.waiting)
+        setConfirm(true)
+      }
+      setBusy(false)
+    } catch {
+      setError(t('adopt.errLeave'))
+      setBusy(false)
+    }
   }
 
   return (
     <>
       <div className="list" style={{ marginTop: 22 }}>
-        <button className="list-row menu-row danger-text" onClick={() => doSignOut()}>
+        <button className="list-row menu-row danger-text" disabled={busy} onClick={() => doSignOut()}>
           <span className="menu-icon danger">
             <IconLogout size={18} />
           </span>
           <span className="grow">{t('set.signOut')}</span>
         </button>
       </div>
-      {confirm && (
+      {error && (
+        <p className="error" role="alert" style={{ marginTop: 10 }}>
+          {error}
+        </p>
+      )}
+      {keeps && !confirm && (
         <div className="card" style={{ marginTop: 12 }}>
-          <p style={{ margin: '0 0 12px' }}>{neverUploaded ? t('set.signOutWarnLocal') : t('set.signOutWarn', { n: Math.max(waiting, status.pending) })}</p>
+          <p style={{ margin: '0 0 12px' }}>{t('set.signOutKeeps')}</p>
           <div className="form-actions">
-            <button className="secondary" onClick={() => setConfirm(false)}>
+            <button className="secondary" disabled={busy} onClick={() => setKeeps(false)}>
               {t('common.cancel')}
             </button>
-            <button className="primary" onClick={() => doSignOut(true)}>
+            <button className="primary" disabled={busy} onClick={() => doSignOut()}>
+              {t('set.signOut')}
+            </button>
+          </div>
+        </div>
+      )}
+      {confirm && (
+        <div className="card" style={{ marginTop: 12 }}>
+          <p style={{ margin: '0 0 12px' }}>{t('set.signOutWarn', { n: Math.max(waiting, status.pending) })}</p>
+          <div className="form-actions">
+            <button className="secondary" disabled={busy} onClick={() => setConfirm(false)}>
+              {t('common.cancel')}
+            </button>
+            <button className="primary" disabled={busy} onClick={() => doSignOut(true)}>
               {t('set.signOutAnyway')}
             </button>
           </div>
@@ -487,14 +539,32 @@ function DangerZone({ label, warn, confirmLabel, onConfirm }: { label: string; w
 
 /** Cancellazione dell'account: tutti i dati sul server (su ogni dispositivo) e su questo dispositivo. */
 function DeleteAccount() {
+  // Dati usati senza account e mai arrivati nell'account: non fanno parte di quello che si elimina, restano sul dispositivo.
+  // Letto dal database in tempo reale: se nel frattempo vengono caricati, l'avviso cambia con loro.
+  const keeps = useLiveQuery(() => adoptionPending(), [], false)
   return (
     <DangerZone
       label={t('set.deleteAccount')}
-      warn={t('set.deleteAccountWarn')}
+      warn={keeps ? `${t('set.deleteAccountWarn')} ${t('adopt.deleteAccountKeeps')}` : t('set.deleteAccountWarn')}
       confirmLabel={t('set.deleteAccountConfirm')}
       onConfirm={async () => {
-        const url = await deleteAccount()
-        await clearLocalData()
+        const keep = await adoptionPending()
+        // Quello che si è appena letto a schermo non vale più (i dati sono stati caricati o tolti nel frattempo):
+        // ci si ferma, così la conferma avviene sull'avviso aggiornato.
+        if (keep !== keeps) throw new Error('changed')
+        // Se poi si potrà continuare senza account lo si chiede adesso: dopo l'eliminazione non si aspetta più la rete.
+        const allowed = keep && (await localModeAllowed())
+        // Da qui in poi niente deve più partire verso l'account che sta per essere eliminato.
+        haltSync()
+        let url: string
+        try {
+          url = await deleteAccount()
+        } catch (e) {
+          resumeSync()
+          throw e
+        }
+        if (keep) await unlinkDevice(allowed)
+        else await clearLocalData()
         location.href = url
       }}
     />
@@ -1157,6 +1227,7 @@ function CurrencyForm({ data, onDone }: { data: AppData; onDone: () => void }) {
 }
 
 function MainCurrencyForm({ data, code, onDone }: { data: AppData; code: string; onDone: () => void }) {
+  const status = useSyncStatus()
   const { mainCurrency, currencies } = data
   const target = currencies.find((c) => c.code === code) ?? mainCurrency
   const [rate, setRate] = useState('')
@@ -1174,8 +1245,9 @@ function MainCurrencyForm({ data, code, onDone }: { data: AppData; code: string;
   async function apply() {
     const x = rateFromInput(rate)
     if (!(x > 0)) return setError(t('mainCur.rateErr'))
-    // Archivio dell'account non ancora scaricato: qui ci sono solo dati predefiniti, convertirli non avrebbe senso.
-    if (data.archivePending) return setError(t('sync.archivePending'))
+    // Primo accesso non concluso: qui ci sono dati predefiniti, oppure dati del dispositivo non ancora nell'account.
+    // In tutti e due i casi cambiare valuta adesso non avrebbe senso.
+    if (data.archivePending) return setError(t(status.conflict ? 'adopt.notice' : placeholderOnly(data) ? 'sync.archivePending' : 'sync.uploadPending'))
     setBusy(true)
     const cur = new Map(currencies.map((c) => [c.code, c]))
     const toTarget = (minor: number) => Math.round(fromMinor(minor, mainCurrency.decimals) * x * 10 ** target.decimals)

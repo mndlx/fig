@@ -55,14 +55,15 @@ describe('primo accesso su un dispositivo', () => {
   })
 
   it('l’archivio dell’account vince sulle modifiche fatte prima di scaricarlo', async () => {
-    // Modifiche fatte guardando i dati predefiniti (valuta stimata, conti vuoti), finite in coda.
+    // Modifiche fatte guardando i dati predefiniti (valuta stimata, categorie di partenza), finite in coda.
+    // Niente movimenti, obiettivi o ricorrenti: con quelli il dispositivo avrebbe dati suoi e si chiederebbe
+    // alla persona cosa farne (vedi adoption-sync.test.ts).
     await db.settings.put({ id: 'main', mainCurrency: 'USD', setup: 'later' })
-    await db.transactions.put({ id: 'opening-acc-main', kind: 'opening', amount: 500, currency: 'EUR', rate: 1, mainAmount: 500, date: Date.now(), accountId: 'acc-main', note: '', source: 'manual' })
     await db.categories.delete('cat-coffee')
-    // Un movimento nuovo, invece, esiste solo qui: va caricato.
-    await db.transactions.put({ id: 'local-1', kind: 'expense', amount: 300, currency: 'EUR', rate: 1, mainAmount: 300, date: Date.now(), accountId: 'acc-main', note: 'Bar', source: 'manual' })
+    // Una categoria nuova, invece, esiste solo qui: va caricata.
+    await db.categories.put({ id: 'cat-mine', name: 'Mia', icon: 'dots', kind: 'expense', color: '#888888', order: 50, archived: false })
     await settle()
-    expect((await db.syncQueue.toArray()).map((q) => q.id).sort()).toEqual(['cat-coffee', 'local-1', 'main', 'opening-acc-main'])
+    expect((await db.syncQueue.toArray()).map((q) => q.id).sort()).toEqual(['cat-coffee', 'cat-mine', 'main'])
 
     const sync = await startSync({ sub: 'user-1' })
     expect(sync?.adopting).toBe(true)
@@ -84,8 +85,8 @@ describe('primo accesso su un dispositivo', () => {
     expect(sent.has('categories|cat-coffee')).toBe(false)
     expect(sent.has('categories|cat-gifts')).toBe(false)
     expect(pushed.some((c) => c.deleted)).toBe(false)
-    // Quello che esiste solo qui parte: il movimento nuovo e i dati predefiniti che il server non ha.
-    expect(sent.get('transactions|local-1')?.data?.note).toBe('Bar')
+    // Quello che esiste solo qui parte: la categoria nuova e i dati predefiniti che il server non ha.
+    expect(sent.get('categories|cat-mine')?.data?.name).toBe('Mia')
     expect(sent.has('categories|cat-groceries')).toBe(true)
     expect(sent.has('currencies|EUR')).toBe(true)
     expect(await db.syncQueue.count()).toBe(0)

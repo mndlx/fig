@@ -61,7 +61,7 @@ Il primo (vitest) copre i calcoli dell'app: importi e valute, CSV, ricorrenze, s
 
 ### Account e privacy
 
-- **Uso senza account** (spento di base, si attiva con `LOCAL_MODE=1` nel `.env` del server; `GET /api/config` lo comunica alla pagina). Se attivo, senza sessione l'app chiede se usarla **senza account** (dati solo nel browser, flag `fig-local` in localStorage) o accedere. Accedendo più tardi, i dati locali vengono caricati sull'account alla prima sincronizzazione.
+- **Uso senza account** (spento di base, si attiva con `LOCAL_MODE=1` nel `.env` del server; `GET /api/config` lo comunica alla pagina). Se attivo, senza sessione l'app chiede se usarla **senza account** (dati solo nel browser, flag `fig-local` in localStorage) o accedere. Accedendo più tardi, se l'account non ha ancora dati quelli locali vengono caricati alla prima sincronizzazione; se ne ha già, l'app chiede cosa fare (aggiungerli all'account, tenere solo quelli dell'account, oppure uscire lasciandoli sul dispositivo) e fino alla scelta non carica niente.
 - **Elimina account** (Impostazioni) chiama `POST /api/account/delete` con `{ "confirm": true }`: il server cancella utente, record e sessioni. L'utente su Keycloak non viene toccato.
 - Pagine pubbliche in `public/`: `privacy.html` e `delete-account.html` (richieste dal Play Store). I caratteri sono serviti dall'app (Fontsource), senza Google Fonts.
 

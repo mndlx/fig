@@ -1,12 +1,13 @@
-import { StrictMode } from 'react'
+import { StrictMode, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { AdoptionChoice } from './AdoptionChoice'
 import App from './App'
 import { initAuth, isLocalOnly, setLocalOnly, signIn } from './auth'
 import { db } from './db'
 import { getLang, t } from './i18n'
 import { IconFig } from './icons'
 import { materializeRecurring } from './recurring'
-import { startSync, stopSyncQueue } from './sync'
+import { getSyncStatus, startSync, stopSyncQueue, useSyncStatus } from './sync'
 import { applyTheme, readTheme } from './theme'
 import '@fontsource-variable/fraunces/opsz.css'
 import '@fontsource-variable/inter'
@@ -36,14 +37,14 @@ function Wordmark() {
   )
 }
 
-function Gate({ kind }: { kind: 'loading' | 'loading-data' | 'offline' | 'error' | 'server-down' }) {
-  if (kind === 'loading' || kind === 'loading-data') {
+function Gate({ kind }: { kind: 'loading' | 'loading-data' | 'checking' | 'offline' | 'error' | 'server-down' }) {
+  if (kind === 'loading' || kind === 'loading-data' || kind === 'checking') {
     return (
       <main className="gate">
         <Wordmark />
-        {/* L'avvio normale dura un attimo: il testo si vede solo quando c'è da scaricare l'archivio. */}
-        <p className={kind === 'loading-data' ? 'muted' : 'sr-only'} role="status">
-          {t(kind === 'loading-data' ? 'auth.loadingData' : 'auth.loading')}
+        {/* L'avvio normale dura un attimo: il testo si vede solo quando c'è da scaricare i dati dell'account. */}
+        <p className={kind === 'loading' ? 'sr-only' : 'muted'} role="status">
+          {t(kind === 'loading-data' ? 'auth.loadingData' : kind === 'checking' ? 'adopt.checking' : 'auth.loading')}
         </p>
       </main>
     )
@@ -106,13 +107,31 @@ function Welcome({ localMode }: { localMode: boolean }) {
   )
 }
 
+/**
+ * L'app, oppure la scelta del primo accesso quando sia il dispositivo sia l'account hanno già dei dati.
+ * La scelta si apre da sola solo se è già nota al primo disegno (è la continuazione dell'accesso); se arriva
+ * più tardi l'app resta a schermo con un avviso, così non sparisce quello che si stava scrivendo.
+ */
+function Root({ offline, local }: { offline: boolean; local: boolean }) {
+  const status = useSyncStatus()
+  const [choosing, setChoosing] = useState(() => getSyncStatus().conflict)
+  if (choosing) return <AdoptionChoice onClose={() => setChoosing(false)} />
+  return <App offline={offline} local={local} onChooseAdoption={status.conflict ? () => setChoosing(true) : undefined} />
+}
+
 function renderApp(offline: boolean, local: boolean) {
   root.render(
     <StrictMode>
-      <App offline={offline} local={local} />
+      <Root offline={offline} local={local} />
     </StrictMode>,
   )
 }
+
+// Un'altra finestra ha fatto l'accesso, o è tornata all'uso senza account: questa riparte dall'avvio,
+// altrimenti continuerebbe a scrivere con le regole di prima (per esempio senza mettere in coda le modifiche).
+window.addEventListener('storage', (event) => {
+  if (event.key === 'fig-local') location.reload()
+})
 
 /**
  * Sessione partita senza rete, o col server irraggiungibile: appena torna raggiungibile si riprende
@@ -155,14 +174,17 @@ async function boot() {
   let offline = false
   let local = false
   if (auth.status === 'signed-in') {
-    // Accesso fatto: i dati usati senza account vengono caricati sul proprio archivio (vedi startSync).
+    // Accesso fatto: il dispositivo viene legato all'account e il primo giro decide come i dati che ci sono qui
+    // incontrano quelli dell'account (si caricano, o si chiede cosa farne se anche l'account ne ha).
     setLocalOnly(false)
     const sync = await startSync(auth.user)
     // Sul dispositivo c'erano i dati di un altro utente: sono stati cancellati e la pagina si ricarica.
     if (!sync) return
     if (sync.adopting) {
       // Primo accesso su questo dispositivo: l'app si apre sui dati dell'utente, non su quelli predefiniti.
-      root.render(<Gate kind="loading-data" />)
+      // Se qui ci sono già dati suoi (usato senza account) non li si sta sostituendo: si controlla cosa c'è nell'account.
+      const hasData = (await db.transactions.count()) + (await db.goals.count()) + (await db.recurring.count()) > 0
+      root.render(<Gate kind={hasData ? 'checking' : 'loading-data'} />)
       await Promise.race([sync.first, new Promise((resolve) => window.setTimeout(resolve, FIRST_SYNC_WAIT))])
     }
   } else if (owner) {
@@ -177,7 +199,7 @@ async function boot() {
     await stopSyncQueue()
   } else if (auth.status === 'signed-out') {
     // Mai entrati da questo dispositivo: prima due righe di benvenuto, poi l'accesso
-    // (i dati locali rimasti da prima restano e vengono caricati dopo l'accesso).
+    // (i dati locali rimasti da prima restano; dopo l'accesso si decide come uniscono a quelli dell'account).
     return root.render(<Welcome localMode={auth.localMode} />)
   } else {
     return root.render(<Gate kind={auth.status} />)
