@@ -1,13 +1,16 @@
 import { IconCheck, IconWallet, IconX } from '@tabler/icons-react'
 import { ACCOUNT_KEY, remember } from './AddSheet'
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { CategoryIcon } from './catIcons'
 import { accountBalance, placeholderOnly, type AppData } from './data'
 import { db, type Account, type Category, type Transaction } from './db'
 import { builtinName, decimalSep, t } from './i18n'
-import { convertMinor, fetchRate, formatMoney, fromMinor, readTyped, soundRate } from './money'
+import { convertMinor, formatMoney, fromMinor, readTyped } from './money'
 import { hasOpening, openingFromBalance, saveOpening } from './opening'
+import { dayKey } from './rate'
+import { RateField, rateHint } from './RateField'
+import { useRate } from './useRate'
 
 /** Categorie predefinite per gli allineamenti: create al primo uso sui database che non le hanno ancora. */
 export const ADJUST_CATEGORIES: Record<'expense' | 'income', Category> = {
@@ -54,14 +57,14 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
     setInput('')
     setError('')
     setAsStart(null)
-    // Altra valuta: finché non arriva il suo cambio non si salva con quello di prima.
-    const next = data.accounts.find((a) => a.id === id)
-    if (next && next.currency !== mainCurrency.code && next.currency !== currency.code) setRate(null)
   }
-  const [rate, setRate] = useState<number | null>(foreign ? null : 1)
-  useEffect(() => {
-    if (!foreign) setRate(1)
-  }, [foreign])
+  // Cambio del conto in valuta verso la principale: quello di oggi, l'ultimo usato, o scritto a mano (rate.ts).
+  // Ogni valuta ha il suo: passando a un altro conto non resta quello di prima.
+  const today = dayKey(Date.now())
+  const rate = useRate({ transactions, from: currency, main: mainCurrency, day: today })
+  const [rateAsked, setRateAsked] = useState<string | null>(null)
+  const rateRef = useRef<HTMLInputElement>(null)
+  const rateBad = foreign && rate.value === null && rateAsked === currency.code
   const [picked, setPicked] = useState<Record<'expense' | 'income', string>>({ expense: ADJUST_CATEGORIES.expense.id, income: ADJUST_CATEGORIES.income.id })
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
@@ -82,21 +85,6 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
   }, [categories, kind])
 
   useEffect(() => {
-    if (!foreign) return
-    let cancelled = false
-    fetchRate(currency.code, mainCurrency.code, new Date()).then((r) => {
-      if (cancelled) return
-      if (r !== null) return setRate(r)
-      // Senza rete: l'ultimo cambio usato per questa valuta.
-      const last = transactions.filter((tx) => tx.currency === currency.code && tx.rate > 0).sort((a, b) => b.date - a.date)[0]
-      setRate(last ? soundRate(last, currency, mainCurrency) : null)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [foreign, currency.code, mainCurrency.code, transactions])
-
-  useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -107,11 +95,18 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
     if (diff === 0) return onClose()
     // Archivio dell'account non ancora scaricato: il saldo "in FIG" qui sopra è quello dei dati predefiniti.
     if (placeholderOnly(data)) return setError(t('sync.archivePending'))
-    if (!(rate && rate > 0)) return setError(t('err.rate', { from: currency.code, to: mainCurrency.code }))
+    const rateValue = rate.value
+    if (rateValue === null) {
+      // Il cambio manca: lo si dice accanto al suo campo e ci si porta il fuoco.
+      setError('')
+      setRateAsked(currency.code)
+      rateRef.current?.focus()
+      return
+    }
     if (starting) {
       // Datato prima del movimento più vecchio del conto, così sul ramo sta alla base e il saldo di oggi torna.
-      const o = openingFromBalance(account, real, transactions, currency, mainCurrency, rate)
-      const opening = await saveOpening(account, o.amount, o.mainAmount, { rate, date: o.date })
+      const o = openingFromBalance(account, real, transactions, currency, mainCurrency, rateValue)
+      const opening = await saveOpening(account, o.amount, o.mainAmount, { rate: rateValue, date: o.date })
       navigator.vibrate?.(8)
       if (opening) onSaved?.(opening)
       return onClose()
@@ -125,8 +120,8 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
       kind,
       amount,
       currency: currency.code,
-      rate,
-      mainAmount: foreign ? convertMinor(amount, currency, mainCurrency, rate) : amount,
+      rate: rateValue,
+      mainAmount: foreign ? convertMinor(amount, currency, mainCurrency, rateValue) : amount,
       date: Date.now(),
       categoryId,
       accountId: account.id,
@@ -140,11 +135,14 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
   }
 
   const name = builtinName(account, 'acc')
+  /** Controvalore nella valuta principale, tra parentesi accanto alla cifra della differenza. */
+  const worth = (minor: number) =>
+    foreign && rate.value !== null ? ` (≈ ${formatMoney(Math.sign(minor) * convertMinor(Math.abs(minor), currency, mainCurrency, rate.value), mainCurrency)})` : ''
   // Differenza registrata come movimento di oggi: cosa diventa, in che categoria, con che nota.
   const adjustFields = (
     <>
       <p className="rec-diff">
-        {t(kind === 'expense' ? 'align.willExpense' : 'align.willIncome', { amount: formatMoney(Math.abs(diff), currency) })}
+        {t(kind === 'expense' ? 'align.willExpense' : 'align.willIncome', { amount: formatMoney(Math.abs(diff), currency) + worth(Math.abs(diff)) })}
       </p>
       <div className="field">
         {t('align.category')}
@@ -216,6 +214,21 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
             />
           </label>
         </div>
+        {foreign && (
+          <RateField
+            id="rec-rate"
+            from={currency.code}
+            to={mainCurrency.code}
+            value={rate.text}
+            placeholder={rate.proposal ? rate.proposal.value : null}
+            hint={rateHint(rate, { bad: rateBad, from: currency, main: mainCurrency, amount: Math.abs(diff), day: today })}
+            invalid={rateBad}
+            inputRef={rateRef}
+            onChange={(text) => (rate.type(text), setRateAsked(null))}
+            onLeave={rate.leave}
+            onEnter={save}
+          />
+        )}
 
         {real !== null &&
           (diff === 0 ? (
@@ -234,7 +247,7 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
                   </button>
                 </div>
               )}
-              {starting ? <p className="rec-diff">{t('align.willStart', { amount: formatMoney(diff, currency) })}</p> : adjustFields}
+              {starting ? <p className="rec-diff">{t('align.willStart', { amount: formatMoney(diff, currency) + worth(diff) })}</p> : adjustFields}
             </>
           ))}
 

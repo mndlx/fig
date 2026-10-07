@@ -9,7 +9,7 @@ Live: https://fig.vlabstudio.net
 ## Cosa fa
 
 - **Il filo**: il mese come un filo che si ingrossa con le entrate e si assottiglia con le uscite. Ogni conto parte da un nodo "Saldo iniziale" modificabile; le scadenze ricorrenti in arrivo compaiono attenuate.
-- **Inserimento in due passi**: prima la categoria (o il gomitolo, o il conto), poi l'importo. Valute con cambio BCE, nota, data, "paga da un gomitolo", ripetizione settimanale, mensile o annuale.
+- **Inserimento in due passi**: prima la categoria (o il gomitolo, o il conto), poi l'importo. Valute col cambio del giorno (BCE), l'ultimo usato o scritto a mano, nota, data, "paga da un gomitolo", ripetizione settimanale, mensile o annuale.
 - **La trama**: riepilogo del mese (speso, entrato, messo da parte, avanzato), calendario delle spese quotidiane, categorie con variazioni significative, spese fisse; vista anno.
 - **Gomitoli**: obiettivi di risparmio con scadenza facoltativa. Stato "in linea / in ritardo" calcolato sul ritmo degli ultimi tre mesi, accantonamento automatico, spesa dal gomitolo senza toccare il disponibile.
 - **Impostazioni**: lingua, account e sincronizzazione, categorie con icone, conti, valute, ricorrenti, import CSV degli estratti conto, export e backup.

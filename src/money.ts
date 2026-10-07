@@ -145,9 +145,15 @@ export function soundRate(tx: Pick<Transaction, 'amount' | 'mainAmount' | 'rate'
   return expected > 0 && Math.abs(expected - actual) <= Math.max(1, actual * 0.02) ? tx.rate : implied
 }
 
-/** Un cambio come testo: al più dieci cifre significative, senza le code dei calcoli in virgola mobile. */
+/**
+ * Un cambio come testo: al più dieci cifre significative, senza le code dei calcoli in virgola mobile e senza
+ * esponente (i numeri piccolissimi verrebbero "9.5e-7", che in un campo non si legge né si riscrive).
+ */
 export function rateText(rate: number): string {
-  return String(Number(rate.toPrecision(10)))
+  const text = String(Number(rate.toPrecision(10)))
+  if (!/e-/.test(text)) return text
+  const decimals = Math.min(100, Math.ceil(-Math.log10(Math.abs(Number(text)))) + 9)
+  return Number(text).toFixed(decimals).replace(/0+$/, '').replace(/\.$/, '')
 }
 
 /**
@@ -166,12 +172,17 @@ export function rebaseTransaction(tx: Transaction, from: Currency, oldMain: Curr
   return { ...tx, rate, mainAmount: Math.sign(tx.amount) * convertMinor(Math.abs(tx.amount), from, target, rate) }
 }
 
-/** Tasso BCE (via Frankfurter) del giorno indicato; null se non disponibile, es. offline. */
-export async function fetchRate(from: string, to: string, date: Date): Promise<number | null> {
+/**
+ * Tasso BCE (via Frankfurter) del giorno indicato; null se non disponibile: offline, coppia non pubblicata,
+ * o nessuna risposta entro `timeout` millisecondi.
+ */
+export async function fetchRate(from: string, to: string, date: Date, timeout = 8000): Promise<number | null> {
   if (from === to) return 1
   const day = date.toISOString().slice(0, 10)
   try {
-    const res = await fetch(`https://api.frankfurter.dev/v1/${day}?from=${from}&to=${to}`)
+    // Con una rete che non risponde non si aspetta all'infinito: dopo qualche secondo vale "non disponibile".
+    const signal = typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(timeout) : undefined
+    const res = await fetch(`https://api.frankfurter.dev/v1/${day}?from=${from}&to=${to}`, { signal })
     if (!res.ok) return null
     const data: { rates?: Record<string, number> } = await res.json()
     return data.rates?.[to] ?? null

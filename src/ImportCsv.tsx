@@ -7,6 +7,7 @@ import { IconLeft } from './icons'
 import { dayStart, matchExisting, openingForHistory, shiftedOpening, suggest, type ExistingMatch, type RowKind } from './importLogic'
 import { builtinName, dateFmt, t, tn } from './i18n'
 import { convertMinor, fetchRate, formatMoney } from './money'
+import { rateInput } from './rate'
 import { ADJUST_CATEGORIES } from './Reconcile'
 
 interface Props {
@@ -112,7 +113,7 @@ export function ImportCsv({ data, onDone }: Props) {
   useEffect(() => {
     if (!foreign) return
     fetchRate(currency.code, mainCurrency.code, new Date()).then((r) => {
-      if (r !== null) setRate(String(Number(r.toFixed(6))))
+      if (r !== null) setRate(rateInput(r))
     })
   }, [foreign, currency.code, mainCurrency.code])
 

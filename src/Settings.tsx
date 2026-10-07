@@ -33,7 +33,8 @@ import { IconLeft } from './icons'
 import { ImportCsv } from './ImportCsv'
 import { authEnabled, currentUser, deleteAccount, isLocalOnly, localModeAllowed, setLocalOnly, signIn, signOut } from './auth'
 import { adoptionPending, clearLocalData, haltSync, leaveAccount, resumeSync, syncNow, unlinkDevice, useSyncStatus } from './sync'
-import { convertMinor, fetchRate, formatMoney, fromMinor, parseTyped, rateText, rebaseTransaction, soundRate } from './money'
+import { convertMinor, fetchRate, formatMoney, fromMinor, parseTyped, rebaseTransaction, soundRate } from './money'
+import { rateInput } from './rate'
 import { readTheme, writeTheme, type Theme } from './theme'
 
 type View =
@@ -1041,7 +1042,7 @@ function AccountForm({ data, acc, onDone }: { data: AppData; acc?: Account; onDo
   const [balance, setBalance] = useState(opening ? numberToInput(fromMinor(opening.amount, currency.decimals)) : '')
   // Il cambio di un conto in valuta parte da quello del suo saldo iniziale: altrimenti anche solo rinominare
   // il conto lo rivaluterebbe al cambio di oggi (o, dove il cambio non si scarica, obbligherebbe a riscriverlo).
-  const [rate, setRate] = useState(() => (opening && opening.currency !== mainCurrency.code ? numberToInput(Number(rateText(soundRate(opening, currency, mainCurrency)))) : ''))
+  const [rate, setRate] = useState(() => (opening && opening.currency !== mainCurrency.code ? rateInput(soundRate(opening, currency, mainCurrency)) : ''))
   const [error, setError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [reconcile, setReconcile] = useState(false)
@@ -1066,13 +1067,13 @@ function AccountForm({ data, acc, onDone }: { data: AppData; acc?: Account; onDo
     // averne provata un'altra); altrimenti si riparte da vuoto e si propone il cambio di oggi: così, se non si
     // scarica, non resta nel campo quello di un'altra valuta.
     if (opening && openingCurrency === code) {
-      setRate(numberToInput(Number(rateText(soundRate(opening, currency, mainCurrency)))))
+      setRate(rateInput(soundRate(opening, currency, mainCurrency)))
       return
     }
     setRate('')
     let cancelled = false
     fetchRate(code, mainCurrency.code, new Date()).then((r) => {
-      if (!cancelled && r !== null) setRate(numberToInput(Number(r.toFixed(6))))
+      if (!cancelled && r !== null) setRate(rateInput(r))
     })
     return () => {
       cancelled = true
@@ -1248,7 +1249,7 @@ function MainCurrencyForm({ data, code, onDone }: { data: AppData; code: string;
   useEffect(() => {
     if (target.code === mainCurrency.code) return
     fetchRate(mainCurrency.code, target.code, new Date()).then((r) => {
-      if (r !== null) setRate(numberToInput(Number(r.toFixed(6))))
+      if (r !== null) setRate(rateInput(r))
     })
   }, [target.code, mainCurrency.code])
 

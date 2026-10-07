@@ -3723,3 +3723,69 @@ button.secondary:not(.slim) {
 .adopt button.danger {
   min-height: 44px;
 }
+
+/* Cambio di un movimento in valuta */
+.amount-converted {
+  font-variant-numeric: tabular-nums;
+}
+.ctx.rate-pill {
+  font-variant-numeric: tabular-nums;
+}
+/* Cambio da scrivere: bordo tratteggiato, come gli altri inviti ("Usa tutto", "Allinea il saldo"). */
+.ctx.rate-pill.need:not(.on) {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--ink) 55%, transparent);
+  box-shadow: none;
+}
+.ctx.rate-pill.bad,
+.ctx.rate-pill.bad svg {
+  color: var(--danger);
+}
+.ctx.rate-pill.bad,
+.ctx.rate-pill.need.bad:not(.on) {
+  border-color: var(--danger);
+}
+/* Campo del cambio: etichetta e provenienza a sinistra, numero a destra. Stesse due colonne del
+   confronto dei saldi, così nell'allineamento il campo sta sotto "Saldo reale". */
+.rate-field {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 12px;
+  align-items: center;
+}
+.rate-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.rate-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.rate-hint {
+  margin: 0;
+  min-height: 1.3em;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.rate-hint.bad {
+  color: var(--danger);
+}
+.rate-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.input.rate-input {
+  min-width: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* Allineamento su schermi bassi: il foglio scorre, il pulsante non si schiaccia. */
+.sheet.reconcile > .save-btn {
+  flex: none;
+}

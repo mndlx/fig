@@ -1,4 +1,4 @@
-import { IconArrowLeft, IconBackspace, IconCalculator, IconCalendar, IconCheck, IconChevronDown, IconChevronRight, IconScale, IconNote, IconPigMoney, IconPlus, IconRepeat, IconWallet, IconX } from '@tabler/icons-react'
+import { IconArrowLeft, IconArrowsExchange, IconBackspace, IconCalculator, IconCalendar, IconCheck, IconChevronDown, IconChevronRight, IconScale, IconNote, IconPigMoney, IconPlus, IconRepeat, IconWallet, IconX } from '@tabler/icons-react'
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CategoryIcon } from './catIcons'
 import { accountBalance, goalBalances, goalDelta, placeholderOnly, type AppData } from './data'
@@ -7,13 +7,16 @@ import { createSeries } from './recurring'
 import { FigFruit } from './Goals'
 import { Calculator } from './Calculator'
 import { builtinName, dateFmt, decimalSep, t, type Key } from './i18n'
-import { convertMinor, fetchRate, formatMoney, fromMinor, moneyParts, parseInput, rateText, soundRate } from './money'
+import { formatMoney, fromMinor, moneyParts, parseInput } from './money'
 import { hasOpening } from './opening'
+import { dayKey, settle } from './rate'
+import { RateField, rateHint, rateShown } from './RateField'
+import { useRate } from './useRate'
 import { rankCategories } from './suggest'
 
 type Mode = 'expense' | 'income' | 'goal' | 'transfer' | 'opening'
 type Step = 'pick' | 'amount'
-type Picker = 'date' | 'account' | 'currency' | 'payFrom' | 'note' | 'newCat' | 'repeat' | null
+type Picker = 'date' | 'account' | 'currency' | 'payFrom' | 'note' | 'rate' | 'newCat' | 'repeat' | null
 type Repeat = 'none' | Frequency
 const REPEATS: Repeat[] = ['none', 'week', 'month', 'year']
 
@@ -52,12 +55,6 @@ const PICK_TITLE: Record<Exclude<Mode, 'opening'>, Key> = {
   income: 'add.q.income',
   goal: 'add.q.shift',
   transfer: 'add.q.shift',
-}
-
-function toDateInput(ts: number): string {
-  const d = new Date(ts)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
 /** Importo salvato → stringa del tastierino (sempre con "." come separatore interno). */
@@ -154,14 +151,8 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
   )
   const [calc, setCalc] = useState(false)
   const [negative, setNegative] = useState(editing?.kind === 'opening' && editing.amount < 0)
-  const [date, setDate] = useState(toDateInput(editing?.date ?? Date.now()))
+  const [date, setDate] = useState(dayKey(editing?.date ?? Date.now()))
   const [note, setNote] = useState(editing?.note ?? '')
-  // Cambio di partenza quando si modifica un movimento in valuta: vale finché non arriva quello del giorno
-  // (senza rete, o per le valute che il servizio non ha, resta questo). Se quello salvato non torna coi suoi importi
-  // (saldi iniziali delle versioni precedenti) si parte da quello vero, altrimenti salvando si sbaglierebbe il controvalore.
-  const [rate, setRate] = useState(() =>
-    editing && editing.currency !== mainCurrency.code ? rateText(soundRate(editing, pickedCurrency, mainCurrency)) : '',
-  )
   const [picker, setPicker] = useState<Picker>(null)
   const [repeat, setRepeat] = useState<Repeat>('none')
   const [newCat, setNewCat] = useState({ name: '', icon: 'dots' })
@@ -174,16 +165,42 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
   const foreign = currency.code !== mainCurrency.code
   const kind: Kind = mode === 'goal' ? goalDir : mode
 
+  // Cambio verso la valuta principale: scritto a mano, del movimento in modifica (finché valuta e giorno sono i
+  // suoi), del giorno, o l'ultimo usato. Le regole stanno in rate.ts.
+  const rate = useRate({ transactions, from: currency, main: mainCurrency, day: date, editing })
+  // Valuta per cui il cambio è stato chiesto (Salva, o campo chiuso con un testo illeggibile): cambiando valuta decade.
+  const [rateAsked, setRateAsked] = useState<string | null>(null)
+  const rateRef = useRef<HTMLInputElement>(null)
+  const ratePillRef = useRef<HTMLButtonElement>(null)
+  const pair = { from: currency.code, to: mainCurrency.code }
+  const rateMissing = foreign && rate.value === null && !rate.pending
+  const rateBad = foreign && rate.value === null && rateAsked === currency.code
+
+  /** Il cambio manca: si apre il suo campo, col fuoco, e lo si dice lì accanto. */
+  function askRate() {
+    setError('')
+    setRateAsked(currency.code)
+    setPicker('rate')
+    rateRef.current?.focus()
+  }
+  function closeRate() {
+    // Scritto ma illeggibile ("abc", "0"): il campo resta aperto e lo dice.
+    if (rate.text.trim() && rate.value === null) return setRateAsked(currency.code)
+    setPicker(null)
+    ratePillRef.current?.focus()
+  }
+  const rateOpen = picker === 'rate'
+  // Testo scritto a mano che c'era all'apertura del campo (vuoto se si mostrava il cambio proposto): Esc lo rimette.
+  const rateAtOpen = useRef('')
   useEffect(() => {
-    if (!foreign) return
-    let cancelled = false
-    fetchRate(currency.code, mainCurrency.code, new Date(date)).then((r) => {
-      if (!cancelled && r !== null) setRate(String(Number(r.toFixed(6))))
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [foreign, currency.code, mainCurrency.code, date])
+    if (rateOpen) rateAtOpen.current = rate.source === 'typed' ? rate.text : ''
+    // Campo chiuso lasciandolo vuoto: torna il cambio proposto.
+    else rate.leave()
+  }, [rateOpen])
+  useEffect(() => {
+    // Tornando a "Per cosa?" il campo si chiude: riaprendo l'importo non deve salire la tastiera da sola.
+    if (step !== 'amount') setPicker((p) => (p === 'rate' ? null : p))
+  }, [step])
 
   const catKind = mode === 'income' ? 'income' : 'expense'
   const { ranked, fromHabits } = useMemo(
@@ -265,7 +282,12 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
       if (/^[0-9]$/.test(e.key)) press(e.key)
       else if (e.key === ',' || e.key === '.') press('.')
       else if (e.key === 'Backspace') press('⌫')
-      else if (e.key === 'Enter' && step === 'amount') save()
+      else if (e.key === 'Enter' && step === 'amount') {
+        // Solo il salvataggio: senza questo Invio premerebbe anche il pulsante che ha il fuoco (una pillola
+        // riaprirebbe il suo selettore, Salva salverebbe due volte).
+        e.preventDefault()
+        save()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -278,8 +300,8 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
     const amount = parseInput(input, currency.decimals) * (mode === 'opening' && negative ? -1 : 1)
     if (amount === 0 || (mode !== 'opening' && amount < 0)) return setError(t('err.amount'))
     if (kind === 'transfer' && selected === accountId) return setError(t('err.sameAccount'))
-    const rateValue = foreign ? Number(rate.replace(',', '.')) : 1
-    if (!(rateValue > 0)) return setError(t('err.rate', { from: currency.code, to: mainCurrency.code }))
+    const worth = settle(amount, currency, mainCurrency, rate, editing)
+    if (!worth) return askRate()
     if (kind === 'release') {
       const available = (balances.get(selected) ?? 0) + (editing?.kind === 'release' && editing.goalId === selected ? editing.mainAmount : 0)
       if (amount > available) return setError(t('add.goalBalance', { amount: formatMoney(available, mainCurrency) }))
@@ -289,8 +311,8 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
     // Nuovo movimento di oggi: ora attuale. Altro giorno: mezzogiorno (o l'ora originale se si modifica).
     const [y, m, d] = date.split('-').map(Number)
     let when: Date
-    if (editing && toDateInput(editing.date) === date) when = new Date(editing.date)
-    else if (!editing && toDateInput(Date.now()) === date) when = new Date()
+    if (editing && dayKey(editing.date) === date) when = new Date(editing.date)
+    else if (!editing && dayKey(Date.now()) === date) when = new Date()
     else {
       const base = editing ? new Date(editing.date) : null
       when = new Date(y, m - 1, d, base ? base.getHours() : 12, base ? base.getMinutes() : 0)
@@ -301,8 +323,8 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
       kind,
       amount,
       currency: currency.code,
-      rate: rateValue,
-      mainAmount: foreign ? Math.sign(amount) * convertMinor(Math.abs(amount), currency, mainCurrency, rateValue) : amount,
+      rate: worth.rate,
+      mainAmount: worth.mainAmount,
       date: when.getTime(),
       categoryId: kind === 'expense' || kind === 'income' ? selected : undefined,
       accountId: mode === 'opening' ? selected : accountId,
@@ -347,6 +369,8 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
 
   // ——— Importo ———
   const amountMinor = parseInput(input, currency.decimals)
+  // Controvalore che verrà salvato, per l'anteprima sotto l'importo.
+  const converted = foreign && amountMinor > 0 ? settle(amountMinor * (mode === 'opening' && negative ? -1 : 1), currency, mainCurrency, rate, editing) : null
   // Guardia: il conto da cui escono i soldi andrebbe sotto zero? Di solito è un errore di contabilità.
   const outAccount = kind === 'expense' || kind === 'transfer' ? accounts.find((a) => a.id === accountId) : undefined
   // Saldo del conto prima di questo movimento (in modifica il movimento è già nel saldo: lo si toglie).
@@ -394,8 +418,8 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
   }
 
   // ——— Pillole di contesto ———
-  const todayKey = toDateInput(Date.now())
-  const yesterdayKey = toDateInput(Date.now() - 86_400_000)
+  const todayKey = dayKey(Date.now())
+  const yesterdayKey = dayKey(Date.now() - 86_400_000)
   const dateLabel =
     (date === todayKey ? t('common.today') : date === yesterdayKey ? t('common.yesterday') : dateFmt({ day: 'numeric', month: 'short' }).format(new Date(date))).replace(/^./, (ch) => ch.toUpperCase())
   const accent = chosen?.color ?? 'var(--fig)'
@@ -654,8 +678,17 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
                 <IconCalculator size={20} />
               </button>
               <span className={`amount-big${input ? '' : ' placeholder'}`}>{amountText}</span>
-              {foreign && Number(rate) > 0 && amountMinor > 0 && (
-                <span className="amount-converted">≈ {formatMoney(convertMinor(amountMinor, currency, mainCurrency, Number(rate)), mainCurrency)}</span>
+              {/* In valuta la riga c'è sempre, anche vuota: comparendo alla prima cifra sposterebbe il tastierino sotto il dito. */}
+              {foreign && (
+                <span className="amount-converted">
+                  {converted
+                    ? rate.source === 'last' && rate.at !== null
+                      ? t('add.convertedLast', { amount: formatMoney(Math.abs(converted.mainAmount), mainCurrency), date: dateFmt({ day: 'numeric', month: 'short' }).format(rate.at) })
+                      : `≈ ${formatMoney(Math.abs(converted.mainAmount), mainCurrency)}`
+                    : rateMissing && amountMinor > 0
+                      ? `≈ ? ${mainCurrency.symbol}`
+                      : '\u00a0'}
+                </span>
               )}
               {useAll !== null && useAll > 0 && useAll !== amountMinor && (
                 <button className="use-all" onClick={() => (setInput(inputFromMinor(useAll, currency.decimals)), setError(''))}>
@@ -712,7 +745,46 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
                   <IconChevronDown size={14} className="ctx-caret" />
                 </button>
               )}
+              {foreign && (
+                <button
+                  ref={ratePillRef}
+                  className={`ctx rate-pill${rateOpen ? ' on' : ''}${rateMissing ? ' need' : ''}${rateBad ? ' bad' : ''}`}
+                  aria-expanded={rateOpen}
+                  onClick={() => setPicker(rateOpen ? null : 'rate')}
+                >
+                  {rateMissing ? <IconPlus size={15} /> : <IconArrowsExchange size={15} />}
+                  {rateMissing ? (
+                    t('add.rate', pair)
+                  ) : (
+                    <>
+                      <span className="sr-only">{t('add.rate', pair)}: </span>
+                      {`1 ${currency.symbol} = ${rate.value !== null ? rateShown(rate.value) : '…'} ${mainCurrency.symbol}`}
+                    </>
+                  )}
+                </button>
+              )}
             </div>
+
+            {rateOpen && foreign && (
+              <RateField
+                id="add-rate"
+                from={currency.code}
+                to={mainCurrency.code}
+                value={rate.text}
+                placeholder={rate.proposal ? rate.proposal.value : null}
+                hint={rateHint(rate, { bad: rateBad, from: currency, main: mainCurrency, amount: amountMinor, day: date })}
+                invalid={rateBad}
+                inputRef={rateRef}
+                autoFocus
+                // Riscrivendo, l'errore di prima non vale più: torna solo al prossimo tentativo.
+                onChange={(text) => (rate.type(text), setRateAsked(null))}
+                onLeave={rate.leave}
+                onEnter={closeRate}
+                onDone={closeRate}
+                // Esc annulla: torna quello che c'era aprendo il campo. Confermano Invio, "Fatto", la pillola e Salva.
+                onEscape={() => (rate.type(rateAtOpen.current), setRateAsked(null), setPicker(null), ratePillRef.current?.focus())}
+              />
+            )}
 
             {picker === 'date' && (
               <div className="options">
@@ -833,9 +905,11 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
             {error && <p className="error">{error}</p>}
 
             <button className="save-btn" onClick={save}>
-              {amountMinor > 0
-                ? t('add.saveBtn', { amount: formatMoney(amountMinor * (negative ? -1 : 1), currency) })
-                : t('add.enterAmount')}
+              {amountMinor === 0
+                ? t('add.enterAmount')
+                : rateMissing
+                  ? t('err.rate', pair)
+                  : t('add.saveBtn', { amount: formatMoney(amountMinor * (negative ? -1 : 1), currency) })}
             </button>
 
             {calc && (
