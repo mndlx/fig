@@ -1,4 +1,4 @@
-import type { Currency } from './db'
+import type { Currency, Transaction } from './db'
 import { decimalSep, getLang, locale } from './i18n'
 
 const FALLBACK: Currency = { code: 'EUR', symbol: '€', decimals: 2 }
@@ -108,6 +108,62 @@ export function formatMoney(minor: number, currency: Currency = FALLBACK, opts: 
 /** Converte un importo tra valute usando il tasso "1 unità di from = rate unità di to". */
 export function convertMinor(amount: number, from: Currency, to: Currency, rate: number): number {
   return Math.round(fromMinor(amount, from.decimals) * rate * 10 ** to.decimals)
+}
+
+/**
+ * Cambio che lega davvero i due importi di un movimento: quante unità della valuta principale vale 1 unità
+ * della valuta del movimento. Si calcola sulle cifre vere, non sulle unità minime: 100,00 $ che valgono
+ * 9.200 L danno 92, non 0,92. Null se uno dei due importi è zero (non c'è niente da cui ricavarlo).
+ */
+export function impliedRate(amount: number, from: Currency, mainAmount: number, main: Currency): number | null {
+  if (!amount || !mainAmount) return null
+  return Math.abs(fromMinor(mainAmount, main.decimals)) / Math.abs(fromMinor(amount, from.decimals))
+}
+
+/**
+ * Cambio di un movimento da usare nei calcoli: quello salvato, se torna coi suoi importi; altrimenti quello che
+ * gli importi implicano. Serve per i saldi iniziali dei conti in valuta salvati dalle versioni precedenti, il cui
+ * cambio era ricavato dalle unità minime: sbagliato di 10, 100 o 1000 volte quando le due valute hanno un numero
+ * diverso di decimali (il controvalore invece era giusto). Usarlo così com'è per rifare un conto lo sbaglierebbe
+ * della stessa misura.
+ *
+ * Limite: si riconosce solo un cambio che non torna col suo controvalore. Un movimento il cui controvalore era
+ * già stato rifatto col cambio sbagliato (modificato o allineato con le versioni precedenti) è coerente con sé
+ * stesso e passa per buono: lì l'errore si vede a schermo (100 $ che valgono 92 L) e si corregge a mano.
+ */
+export function soundRate(tx: Pick<Transaction, 'amount' | 'mainAmount' | 'rate' | 'currency'>, from: Currency, main: Currency): number {
+  if (tx.currency === main.code) return 1
+  const implied = impliedRate(tx.amount, from, tx.mainAmount, main)
+  // Niente da cui ricavarlo: resta quello salvato, o zero se non è nemmeno un numero (dati arrivati da fuori).
+  if (implied === null) return Number.isFinite(tx.rate) ? tx.rate : 0
+  if (!(tx.rate > 0)) return implied
+  // Il cambio salvato "torna" se rifacendo il conto si ritrova il controvalore, a meno degli arrotondamenti
+  // (un'unità minima, o poco più sugli importi grandi). Un errore di scala sbaglia di almeno dieci volte.
+  const expected = convertMinor(Math.abs(tx.amount), from, main, tx.rate)
+  const actual = Math.abs(tx.mainAmount)
+  // Un conto che dà zero non conferma niente: con un controvalore di una sola unità minima rientrerebbe nella tolleranza.
+  return expected > 0 && Math.abs(expected - actual) <= Math.max(1, actual * 0.02) ? tx.rate : implied
+}
+
+/** Un cambio come testo: al più dieci cifre significative, senza le code dei calcoli in virgola mobile. */
+export function rateText(rate: number): string {
+  return String(Number(rate.toPrecision(10)))
+}
+
+/**
+ * Un movimento dopo il cambio della valuta principale (`x` = quante unità della nuova vale 1 unità della vecchia).
+ * Importo e valuta restano quelli scritti, per ogni tipo di movimento: cambiano solo controvalore e cambio.
+ * Così tornando alla valuta di prima si ritrovano le cifre esatte, senza gli arrotondamenti di due conversioni.
+ * - Già nella nuova valuta principale: il controvalore è l'importo stesso.
+ * - Gli altri: cambio del movimento (quello vero, vedi soundRate) per `x`, col segno tenuto a parte come
+ *   quando il movimento viene scritto.
+ * Messi da parte e ripresi restano quindi scritti nella valuta di prima: chi li mostra come cifra della valuta
+ * principale deve leggerne il controvalore (lo fa il foglio "+", che salvando li riscrive in quella nuova).
+ */
+export function rebaseTransaction(tx: Transaction, from: Currency, oldMain: Currency, target: Currency, x: number): Transaction {
+  if (tx.currency === target.code) return { ...tx, rate: 1, mainAmount: tx.amount }
+  const rate = soundRate(tx, from, oldMain) * x
+  return { ...tx, rate, mainAmount: Math.sign(tx.amount) * convertMinor(Math.abs(tx.amount), from, target, rate) }
 }
 
 /** Tasso BCE (via Frankfurter) del giorno indicato; null se non disponibile, es. offline. */

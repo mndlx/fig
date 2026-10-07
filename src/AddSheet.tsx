@@ -7,7 +7,7 @@ import { createSeries } from './recurring'
 import { FigFruit } from './Goals'
 import { Calculator } from './Calculator'
 import { builtinName, dateFmt, decimalSep, t, type Key } from './i18n'
-import { convertMinor, fetchRate, formatMoney, fromMinor, moneyParts, parseInput } from './money'
+import { convertMinor, fetchRate, formatMoney, fromMinor, moneyParts, parseInput, rateText, soundRate } from './money'
 import { hasOpening } from './opening'
 import { rankCategories } from './suggest'
 
@@ -144,13 +144,24 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
   // I gomitoli sono sempre nella valuta principale.
   const currency = mode === 'goal' ? mainCurrency : pickedCurrency
   const [input, setInput] = useState(
-    editing ? inputFromMinor(editing.amount, currency.decimals) : preset?.amount ? String(Number(preset.amount.toFixed(currency.decimals))) : '',
+    // Messi da parte e ripresi si leggono nella valuta principale: vale il controvalore, che è sempre in quella
+    // (l'importo scritto può essere rimasto nella valuta principale di prima, se è stata cambiata).
+    editing
+      ? inputFromMinor(mode === 'goal' ? editing.mainAmount : editing.amount, currency.decimals)
+      : preset?.amount
+        ? String(Number(preset.amount.toFixed(currency.decimals)))
+        : '',
   )
   const [calc, setCalc] = useState(false)
   const [negative, setNegative] = useState(editing?.kind === 'opening' && editing.amount < 0)
   const [date, setDate] = useState(toDateInput(editing?.date ?? Date.now()))
   const [note, setNote] = useState(editing?.note ?? '')
-  const [rate, setRate] = useState(editing && editing.currency !== mainCurrency.code ? String(Math.abs(editing.rate)) : '')
+  // Cambio di partenza quando si modifica un movimento in valuta: vale finché non arriva quello del giorno
+  // (senza rete, o per le valute che il servizio non ha, resta questo). Se quello salvato non torna coi suoi importi
+  // (saldi iniziali delle versioni precedenti) si parte da quello vero, altrimenti salvando si sbaglierebbe il controvalore.
+  const [rate, setRate] = useState(() =>
+    editing && editing.currency !== mainCurrency.code ? rateText(soundRate(editing, pickedCurrency, mainCurrency)) : '',
+  )
   const [picker, setPicker] = useState<Picker>(null)
   const [repeat, setRepeat] = useState<Repeat>('none')
   const [newCat, setNewCat] = useState({ name: '', icon: 'dots' })

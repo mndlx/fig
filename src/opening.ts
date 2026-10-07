@@ -1,14 +1,16 @@
 import { accountBalanceOf } from './data'
 import { db, openingId, type Account, type Currency, type Transaction } from './db'
-import { convertMinor } from './money'
+import { convertMinor, impliedRate } from './money'
 
 /**
  * Saldo iniziale di un conto come movimento "opening" sul filo: si vede, si apre e si modifica
  * come gli altri. Importi in unità minime; possono essere negativi (conto in rosso).
  * Con importo zero il movimento viene tolto. `rate` è il cambio verso la valuta principale
- * (1 unità del conto = rate unità principali): senza, lo si ricava dai due importi.
+ * (1 unità del conto = rate unità principali; 1 per i conti nella valuta principale). Va sempre indicato:
+ * ricavarlo qui dai due importi, che sono in unità minime, lo sbaglierebbe quando le due valute hanno un
+ * numero diverso di decimali.
  */
-export async function saveOpening(acc: Account, amount: number, mainAmount: number, date?: number, rate?: number): Promise<Transaction | undefined> {
+export async function saveOpening(acc: Account, amount: number, mainAmount: number, how: { rate: number; date?: number }): Promise<Transaction | undefined> {
   const id = openingId(acc.id)
   const existing = await db.transactions.get(id)
   if (amount === 0) {
@@ -20,9 +22,9 @@ export async function saveOpening(acc: Account, amount: number, mainAmount: numb
     kind: 'opening',
     amount,
     currency: acc.currency,
-    rate: rate ?? (amount !== 0 ? mainAmount / amount : 1),
+    rate: how.rate,
     mainAmount,
-    date: existing?.date ?? date ?? Date.now(),
+    date: existing?.date ?? how.date ?? Date.now(),
     accountId: acc.id,
     note: existing?.note ?? '',
     source: 'manual',
@@ -78,8 +80,13 @@ export async function migrateInitialBalances() {
   if (accounts.length === 0) return
   const first = await db.transactions.orderBy('date').first()
   const date = first ? Math.min(first.date - 60_000, Date.now()) : Date.now()
+  // Del vecchio saldo ci sono solo i due importi: il cambio è quello che li lega, calcolato sulle cifre vere.
+  const currencies = await db.currencies.toArray()
+  const mainCode = (await db.settings.get('main'))?.mainCurrency ?? 'EUR'
+  const def = (code: string): Currency => currencies.find((c) => c.code === code) ?? { code, symbol: code, decimals: 2 }
   for (const acc of accounts) {
-    if (!(await db.transactions.get(openingId(acc.id)))) await saveOpening(acc, acc.initialBalance, acc.initialMain, date)
+    const rate = acc.currency === mainCode ? 1 : (impliedRate(acc.initialBalance, def(acc.currency), acc.initialMain, def(mainCode)) ?? 1)
+    if (!(await db.transactions.get(openingId(acc.id)))) await saveOpening(acc, acc.initialBalance, acc.initialMain, { rate, date })
     await db.accounts.update(acc.id, { initialBalance: 0, initialMain: 0 })
   }
 }

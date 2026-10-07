@@ -151,7 +151,7 @@ describe('primo avvio: saldi iniziali', () => {
 
   it('non sostituisce un saldo iniziale che esiste già', async () => {
     const main = (await db.accounts.get('acc-main'))!
-    await saveOpening(main, 50000, 50000, NOW - DAY)
+    await saveOpening(main, 50000, 50000, { rate: 1, date: NOW - DAY })
     const ids = await saveStartingBalances({ 'acc-main': 999, 'acc-cash': 2000 }, NOW)
     expect(ids).toEqual(['opening-acc-cash'])
     expect((await db.transactions.get('opening-acc-main'))?.amount).toBe(50000)

@@ -1,4 +1,5 @@
-import type { Transaction } from './db'
+import type { Currency, Transaction } from './db'
+import { convertMinor, soundRate } from './money'
 
 /**
  * Logica dell'import degli estratti conto, separata dalla schermata per poterla provare:
@@ -123,4 +124,17 @@ export function openingForHistory(opening: { amount: number; date: number }, row
   if (earlier.length === 0) return null
   const net = earlier.reduce((sum, r) => sum + (r.kind === 'income' ? r.amount : -r.amount), 0)
   return { amount: opening.amount - net, date: dayStart(Math.min(...earlier.map((r) => r.date))) }
+}
+
+/**
+ * Il saldo iniziale spostato (vedi openingForHistory) come movimento da salvare. Cambio e controvalore vengono
+ * dallo stesso numero: il cambio del saldo che c'era (quello vero, vedi soundRate) o, se non ce n'è uno che si
+ * possa usare, quello indicato per l'importazione. Fare il controvalore in proporzione a quello di prima
+ * moltiplicherebbe il suo arrotondamento: 0,20 $ = 18 L portati a 2.500 $ darebbero 225.000 L invece di 230.000.
+ */
+export function shiftedOpening(opening: Transaction, shift: { amount: number; date: number }, currency: Currency, main: Currency, importRate: number): Transaction {
+  if (currency.code === main.code) return { ...opening, rate: 1, amount: shift.amount, mainAmount: shift.amount, date: shift.date }
+  const own = opening.amount !== 0 ? soundRate(opening, currency, main) : 0
+  const rate = own > 0 ? own : importRate
+  return { ...opening, rate, amount: shift.amount, mainAmount: Math.sign(shift.amount) * convertMinor(Math.abs(shift.amount), currency, main, rate), date: shift.date }
 }

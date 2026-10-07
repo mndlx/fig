@@ -2,7 +2,7 @@ import { db, type SyncedTable } from './db'
 import { quietCurrentTransaction } from './sync'
 import { download, toCsv } from './csv'
 import { builtinName, decimalSep, getLang, locale, t, type Key } from './i18n'
-import { fromMinor } from './money'
+import { fromMinor, rateText, soundRate } from './money'
 
 const TABLES = ['settings', 'currencies', 'accounts', 'categories', 'goals', 'transactions', 'rules', 'importProfiles', 'recurring'] as const
 
@@ -69,9 +69,9 @@ export async function exportCsv() {
   const main = settings?.mainCurrency ?? 'EUR'
   const cat = new Map(categories.map((c) => [c.id, builtinName(c, 'cat')]))
   const acc = new Map(accounts.map((a) => [a.id, builtinName(a, 'acc')]))
-  const dec = new Map(currencies.map((c) => [c.code, c.decimals]))
+  const def = (code: string) => currencies.find((c) => c.code === code) ?? { code, symbol: code, decimals: 2 }
   const sep = decimalSep()
-  const num = (minor: number, code: string) => fromMinor(minor, dec.get(code) ?? 2).toFixed(dec.get(code) ?? 2).replace('.', sep)
+  const num = (minor: number, code: string) => fromMinor(minor, def(code).decimals).toFixed(def(code).decimals).replace('.', sep)
   // Excel in italiano si aspetta il punto e virgola, in inglese la virgola.
   const delimiter = getLang() === 'it' ? ';' : ','
 
@@ -104,7 +104,7 @@ export async function exportCsv() {
       tx.toAccountId ? (acc.get(tx.toAccountId) ?? '') : '',
       num(sign * tx.amount, tx.currency),
       tx.currency,
-      String(tx.rate).replace('.', sep),
+      rateText(soundRate(tx, def(tx.currency), def(main))).replace('.', sep),
       num(sign * tx.mainAmount, main),
       tx.note,
     ])

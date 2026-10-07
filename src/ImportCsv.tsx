@@ -4,7 +4,7 @@ import { detectDecimal, guessColumns, parseAmount, parseCsv, parseDate } from '.
 import { placeholderOnly, type AppData } from './data'
 import { db, openingId, type Category, type ImportProfile, type Rule, type Transaction } from './db'
 import { IconLeft } from './icons'
-import { dayStart, matchExisting, openingForHistory, suggest, type ExistingMatch, type RowKind } from './importLogic'
+import { dayStart, matchExisting, openingForHistory, shiftedOpening, suggest, type ExistingMatch, type RowKind } from './importLogic'
 import { builtinName, dateFmt, t, tn } from './i18n'
 import { convertMinor, fetchRate, formatMoney } from './money'
 import { ADJUST_CATEGORIES } from './Reconcile'
@@ -290,19 +290,7 @@ export function ImportCsv({ data, onDone }: Props) {
 
     // Storico precedente al saldo iniziale: il saldo iniziale si sposta indietro, il saldo di oggi non cambia.
     const shift = opening ? openingForHistory(opening, chosen.map((i) => ({ date: i.date.getTime(), kind: i.kind, amount: i.amount }))) : null
-    const newOpening: Transaction | null =
-      opening && shift
-        ? {
-            ...opening,
-            amount: shift.amount,
-            mainAmount: !foreign
-              ? shift.amount
-              : opening.amount !== 0
-                ? Math.round(shift.amount * (opening.mainAmount / opening.amount))
-                : Math.sign(shift.amount) * convertMinor(Math.abs(shift.amount), currency, mainCurrency, rateValue),
-            date: shift.date,
-          }
-        : null
+    const newOpening: Transaction | null = opening && shift ? shiftedOpening(opening, shift, currency, mainCurrency, rateValue) : null
 
     const usesFee = txs.some((x) => x.categoryId === feeCategory.id) && !categories.some((c) => c.id === feeCategory.id)
     await db.transaction('rw', db.transactions, db.rules, db.importProfiles, db.categories, async () => {

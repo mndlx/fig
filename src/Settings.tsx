@@ -33,7 +33,7 @@ import { IconLeft } from './icons'
 import { ImportCsv } from './ImportCsv'
 import { authEnabled, currentUser, deleteAccount, isLocalOnly, localModeAllowed, setLocalOnly, signIn, signOut } from './auth'
 import { adoptionPending, clearLocalData, haltSync, leaveAccount, resumeSync, syncNow, unlinkDevice, useSyncStatus } from './sync'
-import { convertMinor, fetchRate, formatMoney, fromMinor, parseTyped } from './money'
+import { convertMinor, fetchRate, formatMoney, fromMinor, parseTyped, rateText, rebaseTransaction, soundRate } from './money'
 import { readTheme, writeTheme, type Theme } from './theme'
 
 type View =
@@ -1039,7 +1039,9 @@ function AccountForm({ data, acc, onDone }: { data: AppData; acc?: Account; onDo
   // Il saldo iniziale è il nodo "opening" del conto sul filo.
   const opening = acc ? data.transactions.find((tx) => tx.id === openingId(acc.id)) : undefined
   const [balance, setBalance] = useState(opening ? numberToInput(fromMinor(opening.amount, currency.decimals)) : '')
-  const [rate, setRate] = useState('')
+  // Il cambio di un conto in valuta parte da quello del suo saldo iniziale: altrimenti anche solo rinominare
+  // il conto lo rivaluterebbe al cambio di oggi (o, dove il cambio non si scarica, obbligherebbe a riscriverlo).
+  const [rate, setRate] = useState(() => (opening && opening.currency !== mainCurrency.code ? numberToInput(Number(rateText(soundRate(opening, currency, mainCurrency)))) : ''))
   const [error, setError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [reconcile, setReconcile] = useState(false)
@@ -1057,8 +1059,17 @@ function AccountForm({ data, acc, onDone }: { data: AppData; acc?: Account; onDo
   }, [openingAmount, openingDecimals])
   const used = acc ? data.transactions.some((tx) => tx.kind !== 'opening' && (tx.accountId === acc.id || tx.toAccountId === acc.id)) : false
 
+  const openingCurrency = opening?.currency
   useEffect(() => {
     if (!foreign) return
+    // Il campo segue la valuta scelta. Se è quella del saldo iniziale vale il suo cambio (anche tornandoci dopo
+    // averne provata un'altra); altrimenti si riparte da vuoto e si propone il cambio di oggi: così, se non si
+    // scarica, non resta nel campo quello di un'altra valuta.
+    if (opening && openingCurrency === code) {
+      setRate(numberToInput(Number(rateText(soundRate(opening, currency, mainCurrency)))))
+      return
+    }
+    setRate('')
     let cancelled = false
     fetchRate(code, mainCurrency.code, new Date()).then((r) => {
       if (!cancelled && r !== null) setRate(numberToInput(Number(r.toFixed(6))))
@@ -1066,7 +1077,7 @@ function AccountForm({ data, acc, onDone }: { data: AppData; acc?: Account; onDo
     return () => {
       cancelled = true
     }
-  }, [foreign, code, mainCurrency.code])
+  }, [foreign, code, mainCurrency.code, openingCurrency])
 
   async function save() {
     // Archivio dell'account non ancora scaricato: questi sono i conti predefiniti, non quelli dell'utente.
@@ -1089,7 +1100,7 @@ function AccountForm({ data, acc, onDone }: { data: AppData; acc?: Account; onDo
       archived: acc?.archived ?? false,
     }
     await db.accounts.put(saved)
-    await saveOpening(saved, initialBalance, initialMain)
+    await saveOpening(saved, initialBalance, initialMain, { rate: rateValue })
     onDone()
   }
 
@@ -1268,11 +1279,8 @@ function MainCurrencyForm({ data, code, onDone }: { data: AppData; code: string;
       )
       const txs = await db.transactions.toArray()
       await db.transactions.bulkPut(
-        txs.map((tx) => {
-          const from = cur.get(tx.currency) ?? mainCurrency
-          const newRate = tx.currency === target.code ? 1 : tx.rate * x
-          return { ...tx, rate: newRate, mainAmount: tx.currency === target.code ? tx.amount : convertMinor(tx.amount, from, target, newRate) }
-        }),
+        // La regola per ogni movimento sta in money.ts (rebaseTransaction).
+        txs.map((tx) => rebaseTransaction(tx, cur.get(tx.currency) ?? mainCurrency, mainCurrency, target, x)),
       )
       const accs = await db.accounts.toArray()
       await db.accounts.bulkPut(

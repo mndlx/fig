@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { accountEffect, matchExisting, openingForHistory, suggest, type ImportRow } from '../importLogic'
-import { tx } from './helpers'
+import type { Currency, Transaction } from '../db'
+import { accountEffect, matchExisting, openingForHistory, shiftedOpening, suggest, type ImportRow } from '../importLogic'
+import { ALL, EUR, tx } from './helpers'
 
 const at = (day: number, h = 12) => new Date(2026, 8, day, h).getTime()
 const row = (index: number, day: number, kind: 'expense' | 'income', amount: number): ImportRow => ({ index, date: at(day), kind, amount })
@@ -100,5 +101,35 @@ describe('import: storico precedente al saldo iniziale', () => {
     const net = (rows: { kind: string; amount: number }[]) => rows.reduce((s, r) => s + (r.kind === 'income' ? r.amount : -r.amount), 0)
     expect(moved.amount + net(earlier) + net(later)).toBe(opening.amount + net(later))
     expect(moved.amount).toBe(120000 + 2990 - 10000 + 10000)
+  })
+})
+
+describe('import: il saldo iniziale spostato come movimento', () => {
+  const USD: Currency = { code: 'USD', symbol: '$', decimals: 2 }
+  const opening = (extra: Partial<Transaction>): Transaction => ({ id: 'opening-acc-usd', kind: 'opening', amount: 0, currency: 'USD', rate: 1, mainAmount: 0, date: at(20, 8), accountId: 'acc-usd', note: 'Nota', source: 'manual', ...extra })
+  const shift = { amount: 250000, date: at(11, 0) }
+
+  it('cambio e controvalore dallo stesso numero, non in proporzione al controvalore di prima', () => {
+    // 0,20 $ a 92 erano 18 L (18,4 arrotondato). Portato a 2.500,00 $: 230.000 L, non 225.000.
+    const moved = shiftedOpening(opening({ amount: 20, mainAmount: 18, rate: 92 }), shift, USD, ALL, 95)
+    expect(moved).toMatchObject({ id: 'opening-acc-usd', kind: 'opening', note: 'Nota', amount: 250000, mainAmount: 230000, rate: 92, date: shift.date })
+  })
+
+  it('saldo delle versioni precedenti: il cambio sbagliato di scala viene corretto', () => {
+    // 100,00 $ = 9.200 L salvati col cambio 0,92.
+    expect(shiftedOpening(opening({ amount: 10000, mainAmount: 9200, rate: 0.92 }), shift, USD, ALL, 95)).toMatchObject({ amount: 250000, mainAmount: 230000, rate: 92 })
+  })
+
+  it('saldo che diventa negativo: il segno resta fuori dall’arrotondamento', () => {
+    expect(shiftedOpening(opening({ amount: 10000, mainAmount: 9200, rate: 92 }), { amount: -150, date: shift.date }, USD, ALL, 95)).toMatchObject({ amount: -150, mainAmount: -138, rate: 92 })
+  })
+
+  it('senza un cambio che si possa usare vale quello indicato per l’importazione', () => {
+    // Controvalore zero e nessun cambio salvato: prima il nuovo controvalore restava zero.
+    expect(shiftedOpening(opening({ amount: 500, mainAmount: 0, rate: 0 }), shift, USD, ALL, 95)).toMatchObject({ amount: 250000, mainAmount: 237500, rate: 95 })
+  })
+
+  it('conto nella valuta principale: il controvalore è l’importo', () => {
+    expect(shiftedOpening(opening({ currency: 'EUR', amount: 120000, mainAmount: 120000, rate: 1 }), { amount: 122990, date: shift.date }, EUR, EUR, 1)).toMatchObject({ amount: 122990, mainAmount: 122990, rate: 1 })
   })
 })

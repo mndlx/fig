@@ -6,7 +6,7 @@ import { CategoryIcon } from './catIcons'
 import { accountBalance, placeholderOnly, type AppData } from './data'
 import { db, type Account, type Category, type Transaction } from './db'
 import { builtinName, decimalSep, t } from './i18n'
-import { convertMinor, fetchRate, formatMoney, fromMinor, readTyped } from './money'
+import { convertMinor, fetchRate, formatMoney, fromMinor, readTyped, soundRate } from './money'
 import { hasOpening, openingFromBalance, saveOpening } from './opening'
 
 /** Categorie predefinite per gli allineamenti: create al primo uso sui database che non le hanno ancora. */
@@ -89,7 +89,7 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
       if (r !== null) return setRate(r)
       // Senza rete: l'ultimo cambio usato per questa valuta.
       const last = transactions.filter((tx) => tx.currency === currency.code && tx.rate > 0).sort((a, b) => b.date - a.date)[0]
-      setRate(last?.rate ?? null)
+      setRate(last ? soundRate(last, currency, mainCurrency) : null)
     })
     return () => {
       cancelled = true
@@ -111,7 +111,7 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
     if (starting) {
       // Datato prima del movimento più vecchio del conto, così sul ramo sta alla base e il saldo di oggi torna.
       const o = openingFromBalance(account, real, transactions, currency, mainCurrency, rate)
-      const opening = await saveOpening(account, o.amount, o.mainAmount, o.date, rate)
+      const opening = await saveOpening(account, o.amount, o.mainAmount, { rate, date: o.date })
       navigator.vibrate?.(8)
       if (opening) onSaved?.(opening)
       return onClose()
