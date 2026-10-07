@@ -478,10 +478,10 @@ describe('unione con valute principali diverse', () => {
     expect(after.transactions.find((t) => t.id === 'opening-acc-main')?.amount).toBe(100000)
     // Saldo di ogni conto del dispositivo, nella sua valuta: lo stesso di prima.
     expect(balance(after, String(cash.id), 'EUR')).toBe(balance(local, 'acc-cash', 'ALL'))
-    // Limite già noto del saldo dei conti in valuta (non nasce qui): un movimento scritto in un'altra valuta,
-    // come i 20,00 € spesi dal conto in lek, viene contato col suo importo (2.000) invece che col controvalore
-    // (prima 1.940 L). Per questo dopo un'unione tra valute l'app invita ad allineare i saldi.
-    expect(balance(after, String(main.id), 'EUR')).toBe(balance(local, 'acc-main', 'ALL') + 1940 - 2000)
+    // Anche coi movimenti scritti in un'altra valuta: i 20,00 € spesi dal conto in lek ne avevano tolti 1.940 L,
+    // e quei lek ora stanno scritti a parte (il controvalore è passato in euro).
+    expect(after.transactions.find((t) => t.id === 'eur')).toMatchObject({ currency: 'EUR', amount: 2000, mainAmount: 2000, accountAmount: 1940 })
+    expect(balance(after, String(main.id), 'EUR')).toBe(balance(local, 'acc-main', 'ALL'))
     expect(balance(after, 'acc-usd', 'EUR')).toBe(balance(local, 'acc-usd', 'ALL'))
     // E niente di quello che parte esiste già nell'account.
     for (const q of plan.queue) expect(there.get(archiveKey(q.tbl, q.id))?.data).toBeUndefined()
@@ -529,6 +529,65 @@ describe('unione con valute principali diverse', () => {
     expect(row('d3')).toMatchObject({ currency: 'ALL', amount: 4850, mainAmount: 4850, rate: 1 })
     expect(row('d4')).toMatchObject({ currency: 'ALL', amount: 3000, mainAmount: 3000, rate: 1 })
     expect(after.goals[0].target).toBe(97000)
+    // I 3.000 L erano usciti dal conto in euro come 0,31 €: ora che il controvalore è in lek, restano scritti a parte.
+    expect(row('d4').accountAmount).toBe(31)
+    expect(row('d1')).not.toHaveProperty('accountAmount')
+    const conto = after.accounts.find((a) => a.name === 'Conto (EUR)')!
+    expect(balance(after, String(conto.id), 'ALL')).toBe(balance(euroDevice, 'acc-main', 'EUR'))
+  })
+
+  it('quello che è passato sui conti del dispositivo resta fermo: conto in euro, giroconti, ricorrenze', () => {
+    // Dispositivo in lek con un conto in euro tutto suo; account in euro. 1 lek = 0,0103 euro.
+    const here = lekDevice({
+      accounts: [acc('acc-main', 'ALL'), acc('acc-cash', 'ALL'), acc('acc-eur', 'EUR', { name: 'Euro' })],
+      transactions: [
+        opening('acc-main', 100000, { currency: 'ALL' }),
+        opening('acc-eur', 20000, { rate: 97.5, mainAmount: 19500 }),
+        // 5.000 L pagati dal conto in euro: usciti 51,28 €.
+        tx('spesa', 'expense', 5000, { currency: 'ALL', accountId: 'acc-eur', accountAmount: 5128 }),
+        // La stessa, scritta prima che l'importo sul conto esistesse.
+        tx('vecchia', 'expense', 5000, { currency: 'ALL', accountId: 'acc-eur' }),
+        // Giroconto di 5.000 L dal conto in lek al conto in euro: arrivati 51,28 €.
+        tx('giro', 'transfer', 5000, { currency: 'ALL', toAccountId: 'acc-eur', toAccountAmount: 5128 }),
+        // 10,00 $ pagati dal conto in lek: usciti 920 L.
+        tx('dollari', 'expense', 1000, { currency: 'USD', rate: 92, mainAmount: 920 }),
+      ],
+      recurring: [{ id: 'abbonamento', kind: 'expense', amount: 1299, currency: 'EUR', rate: 97, mainAmount: 1260, categoryId: 'cat-groceries', accountId: 'acc-main', note: '', frequency: 'month', start: NOW, next: NOW, active: true }],
+    })
+    const { after } = merge(here, there, options(X))
+    const row = (id: string) => after.transactions.find((t) => t.id === id)!
+    const conto = after.accounts.find((a) => a.name === 'Conto (ALL)')!
+    // Un conto nella valuta dell'account trova nel controvalore quello che c'è passato: 51,28 €, non 5.000 × 0,0103 = 51,50.
+    expect(row('spesa')).toMatchObject({ currency: 'ALL', amount: 5000, mainAmount: 5128, rate: 0.010256 })
+    expect(row('spesa')).not.toHaveProperty('accountAmount')
+    // Dove la cifra non c'era non la si inventa: controvalore col cambio dato, niente a parte.
+    expect(row('vecchia')).toMatchObject({ mainAmount: 5150, rate: X })
+    expect(row('vecchia')).not.toHaveProperty('accountAmount')
+    // Giroconto: il conto di partenza ha l'id nuovo, il controvalore sono gli euro arrivati.
+    expect(row('giro')).toMatchObject({ accountId: conto.id, toAccountId: 'acc-eur', mainAmount: 5128 })
+    expect(row('giro')).not.toHaveProperty('toAccountAmount')
+    expect(row('giro')).not.toHaveProperty('accountAmount')
+    // Terza valuta dal conto in lek: controvalore in euro, e i 920 L usciti restano a parte.
+    expect(row('dollari')).toMatchObject({ currency: 'USD', amount: 1000, mainAmount: 948, accountAmount: 920 })
+    // La ricorrenza segue il conto e si porta dietro i suoi 1.260 L a scadenza.
+    expect(after.recurring.find((r) => r.id === 'abbonamento')).toMatchObject({ accountId: conto.id, currency: 'EUR', amount: 1299, mainAmount: 1299, rate: 1, accountAmount: 1260 })
+    // I saldi, ognuno nella sua valuta: quelli di prima. (Il conto in euro senza la riga vecchia, che resta una stima.)
+    expect(balance(after, String(conto.id), 'EUR')).toBe(balance(here, 'acc-main', 'ALL'))
+    const facts = (data: LocalData): LocalData => ({ ...data, transactions: data.transactions.filter((t) => t.id !== 'vecchia') })
+    expect(balance(facts(after), 'acc-eur', 'EUR')).toBe(balance(facts(here), 'acc-eur', 'ALL'))
+    expect(balance(facts(here), 'acc-eur', 'ALL')).toBe(20000 - 5128 + 5128)
+  })
+
+  it('con la stessa valuta principale gli importi sui conti passano così come sono, senza riscrivere le righe', () => {
+    // Dispositivo e account in euro; sul dispositivo un conto in dollari con una spesa in lek (usciti 54,35 $).
+    const here = device({
+      accounts: [acc('acc-main', 'EUR'), acc('acc-cash', 'EUR'), acc('acc-usd', 'USD', { name: 'Dollari' })],
+      transactions: [tx('lek', 'expense', 5000, { currency: 'ALL', rate: 0.0103, mainAmount: 5150, accountId: 'acc-usd', accountAmount: 5435 })],
+    })
+    const { plan, after } = merge(here, there, options())
+    expect(after.transactions.find((t) => t.id === 'lek')).toEqual(here.transactions[0])
+    expect(plan.put.some((p) => p.tbl === 'transactions' && p.row.id === 'lek')).toBe(false)
+    expect(queued(plan)).toContain('transactions|lek')
   })
 
   it('anteprima: il cambio può venire dai movimenti dell’account, e le scadenze future non sono “disponibile”', () => {
@@ -561,5 +620,45 @@ describe('unione: stessa valuta definita con decimali diversi', () => {
     const after = apply(local, planAdoption('merge', local, there, options()))
     expect(after.transactions.find((t) => t.id === 'd1')).toMatchObject({ amount: 1500, mainAmount: 900, rate: 0.006 })
     expect(after.currencies.find((c) => c.code === 'JPY')?.decimals).toBe(0)
+  })
+
+  it('anche quelli passati sui conti, nella valuta del conto', () => {
+    const YEN2 = { code: 'JPY', symbol: '¥', decimals: 2 }
+    const YEN0 = { code: 'JPY', symbol: '¥', decimals: 0 }
+    // Stessa valuta principale. Sul conto in yen: 10,00 $ pagati (usciti 1.500,00 ¥ a due decimali), un giroconto
+    // in dollari arrivato come 1.500,00 ¥, una ricorrenza.
+    const local = device({
+      currencies: [EUR, USD, YEN2],
+      accounts: [acc('acc-main', 'EUR'), acc('acc-cash', 'EUR'), acc('acc-jpy', 'JPY', { name: 'Yen' }), acc('acc-usd', 'USD', { name: 'Dollari' })],
+      transactions: [
+        tx('d2', 'expense', 1000, { currency: 'USD', rate: 0.9, mainAmount: 900, accountId: 'acc-jpy', accountAmount: 150000 }),
+        tx('d3', 'transfer', 1000, { currency: 'USD', rate: 0.9, mainAmount: 900, accountId: 'acc-usd', toAccountId: 'acc-jpy', toAccountAmount: 150000 }),
+        tx('d4', 'expense', 2000, { currency: 'USD', rate: 0.9, mainAmount: 1800, accountId: 'acc-jpy', accountAmount: 300000 }),
+      ],
+      recurring: [{ id: 'r1', kind: 'expense', amount: 1000, currency: 'USD', rate: 0.9, mainAmount: 900, categoryId: 'cat-groceries', accountId: 'acc-jpy', accountAmount: 150000, note: '', frequency: 'month', start: NOW, next: NOW, active: true }],
+    })
+    const there = account(live('currencies', YEN0), live('transactions', tx('s1', 'expense', 100)))
+    const { after } = merge(local, there, options())
+    const row = (id: string) => after.transactions.find((t) => t.id === id)!
+    expect(row('d2')).toMatchObject({ amount: 1000, mainAmount: 900, rate: 0.9, accountAmount: 1500 })
+    expect(row('d3')).toMatchObject({ amount: 1000, mainAmount: 900, toAccountAmount: 1500 })
+    expect(after.recurring.find((r) => r.id === 'r1')).toMatchObject({ amount: 1000, accountAmount: 1500 })
+    // Il saldo del conto in yen vale lo stesso, nella scala nuova: −1.500,00 ¥ erano −150000, ora −1500.
+    expect(balance(local, 'acc-jpy', 'EUR')).toBe(-150000 + 150000 - 300000)
+    expect(balance(after, 'acc-jpy', 'EUR')).toBe(-1500 + 1500 - 3000)
+  })
+
+  it('e con valute principali diverse: il controvalore di prima, nella scala nuova, resta sul conto', () => {
+    // Dispositivo in yen (a due decimali qui, zero nell'account), account in euro. 1 ¥ = 0,006 €.
+    const local = device({
+      settings: [{ id: 'main', mainCurrency: 'JPY' }],
+      currencies: [EUR, USD, { code: 'JPY', symbol: '¥', decimals: 2 }],
+      accounts: [acc('acc-main', 'JPY'), acc('acc-cash', 'JPY')],
+      // 10,00 $ pagati dal conto in yen: usciti 1.500,00 ¥ (150000 a due decimali).
+      transactions: [tx('d1', 'expense', 1000, { currency: 'USD', rate: 150, mainAmount: 150000 })],
+    })
+    const there = account(live('currencies', { code: 'JPY', symbol: '¥', decimals: 0 }))
+    const { after } = merge(local, there, options(0.006))
+    expect(after.transactions.find((t) => t.id === 'd1')).toMatchObject({ currency: 'USD', amount: 1000, mainAmount: 900, accountAmount: 1500 })
   })
 })

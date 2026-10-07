@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, type Account, type Category, type Currency, type Goal, type Recurring, type Transaction } from './db'
+import { sideAmount, type Side } from './money'
 
 export interface AppData {
   mainCurrency: Currency
@@ -90,14 +91,20 @@ export function accountBalance(acc: Account, data: AppData): number {
 
 /** Come accountBalance, ma dai soli movimenti: serve anche dentro le transazioni del database. */
 export function accountBalanceOf(acc: Account, transactions: Transaction[], mainCode: string, now = Date.now()): number {
-  // Importo nella valuta del conto: uguale se la valuta coincide, il controvalore se il conto è nella valuta principale.
-  const inAccount = (tx: Transaction) => (tx.currency === acc.currency ? tx.amount : acc.currency === mainCode ? tx.mainAmount : tx.amount)
+  /**
+   * Quanto il movimento sposta su questo conto, nella sua valuta (vedi sideAmount in money.ts).
+   * Dove non si sa (movimento scritto in un'altra valuta, su un conto non nella principale, prima che l'importo
+   * sul conto venisse salvato) resta l'importo scritto, come si è sempre letto. È sbagliato di scala, ma è fermo:
+   * una stima dal controvalore dipenderebbe dai cambi degli altri movimenti e farebbe muovere il saldo da solo,
+   * anche dopo un allineamento. Quel movimento si sistema riaprendolo e salvandolo, o allineando il saldo del conto.
+   */
+  const on = (tx: Transaction, side: Side) => sideAmount(tx, side, acc.currency, mainCode) ?? tx.amount
   let b = acc.initialBalance
   for (const tx of transactions) {
     // Solo movimenti già avvenuti: le scadenze in arrivo non sono ancora uscite dal conto.
     if (tx.kind === 'save' || tx.kind === 'release' || tx.date > now) continue
-    if (tx.accountId === acc.id) b += tx.kind === 'income' || tx.kind === 'opening' ? inAccount(tx) : -inAccount(tx)
-    if (tx.toAccountId === acc.id) b += inAccount(tx)
+    if (tx.accountId === acc.id) b += tx.kind === 'income' || tx.kind === 'opening' ? on(tx, 'from') : -on(tx, 'from')
+    if (tx.toAccountId === acc.id) b += on(tx, 'to')
   }
   return b
 }

@@ -2,7 +2,6 @@ import { IconCheck } from '@tabler/icons-react'
 import { useLayoutEffect, useRef, type RefObject } from 'react'
 import type { Currency } from './db'
 import { dateFmt, decimalSep, locale, t } from './i18n'
-import { convertMinor, formatMoney } from './money'
 import { dayEnd, rateInput, type RateView } from './rate'
 
 /**
@@ -18,13 +17,13 @@ export function rateShown(rate: number): string {
  * Riga sotto l'etichetta del campo: l'errore, se il cambio è stato chiesto e manca; altrimenti da dove viene
  * il cambio proposto, o quanto vale l'importo con quello scritto a mano (così un errore di scala si vede subito).
  */
-export function rateHint(view: RateView, ctx: { bad: boolean; from: Currency; main: Currency; amount: number; day: string }): string {
+export function rateHint(view: RateView, ctx: { bad: boolean; from: Currency; main: Currency; worth: string; day: string }): string {
   const { from, main } = ctx
   if (ctx.bad) return view.text.trim() ? t('rate.bad', { example: `97${decimalSep()}5` }) : t('err.rate', { from: from.code, to: main.code })
   const date = (ts: number) => dateFmt({ day: 'numeric', month: 'short' }).format(ts)
   switch (view.source) {
     case 'typed':
-      return view.value !== null && ctx.amount > 0 ? `${formatMoney(ctx.amount, from)} ≈ ${formatMoney(convertMinor(ctx.amount, from, main, view.value), main)}` : ''
+      return view.value !== null ? ctx.worth : ''
     case 'own':
       return t('rate.own')
     case 'day':

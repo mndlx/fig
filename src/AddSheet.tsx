@@ -2,16 +2,16 @@ import { IconArrowLeft, IconArrowsExchange, IconBackspace, IconCalculator, IconC
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CategoryIcon } from './catIcons'
 import { accountBalance, goalBalances, goalDelta, placeholderOnly, type AppData } from './data'
-import { db, WOOL, type Frequency, type Kind, type Transaction } from './db'
+import { db, WOOL, type Account, type Currency, type Frequency, type Kind, type Transaction } from './db'
 import { createSeries } from './recurring'
 import { FigFruit } from './Goals'
 import { Calculator } from './Calculator'
 import { builtinName, dateFmt, decimalSep, t, type Key } from './i18n'
-import { formatMoney, fromMinor, moneyParts, parseInput } from './money'
+import { convertMinor, formatMoney, fromMinor, moneyParts, parseInput, sideAmount, sideNeedsOwn, type Side } from './money'
 import { hasOpening } from './opening'
-import { dayKey, settle } from './rate'
+import { dayKey, originFor, settle, settleSide } from './rate'
 import { RateField, rateHint, rateShown } from './RateField'
-import { useRate } from './useRate'
+import { useRates } from './useRate'
 import { rankCategories } from './suggest'
 
 type Mode = 'expense' | 'income' | 'goal' | 'transfer' | 'opening'
@@ -165,38 +165,60 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
   const foreign = currency.code !== mainCurrency.code
   const kind: Kind = mode === 'goal' ? goalDir : mode
 
-  // Cambio verso la valuta principale: scritto a mano, del movimento in modifica (finché valuta e giorno sono i
-  // suoi), del giorno, o l'ultimo usato. Le regole stanno in rate.ts.
-  const rate = useRate({ transactions, from: currency, main: mainCurrency, day: date, editing })
-  // Valuta per cui il cambio è stato chiesto (Salva, o campo chiuso con un testo illeggibile): cambiando valuta decade.
+  // Conti che il movimento tocca: quello di partenza e, nei giroconti, quello di arrivo. Messi da parte e ripresi
+  // non spostano soldi tra conti.
+  const cur = (code: string): Currency => currencies.find((c) => c.code === code) ?? { code, symbol: code, decimals: 2 }
+  const fromAccount = mode === 'goal' ? undefined : accounts.find((a) => a.id === (mode === 'opening' ? selected : accountId))
+  const toAccount = mode === 'transfer' ? accounts.find((a) => a.id === selected) : undefined
+  // Valute estere coinvolte: quella del movimento e quelle dei conti. Ognuna ha il suo cambio verso la principale:
+  // quello del movimento serve al controvalore, quello di un conto in un'altra valuta ancora a sapere quanto ci passa.
+  const involved = [...new Set([currency.code, fromAccount?.currency, toAccount?.currency])].filter((c): c is string => !!c && c !== mainCurrency.code).map(cur)
+  // Valute dei conti del movimento com'è salvato: servono al cambio "suo" di ognuna.
+  const savedSides = { from: accounts.find((a) => a.id === editing?.accountId)?.currency, to: accounts.find((a) => a.id === editing?.toAccountId)?.currency }
+  // Cambi verso la valuta principale: scritti a mano, del movimento in modifica (finché valuta e giorno sono i
+  // suoi), del giorno, o gli ultimi usati. Le regole stanno in rate.ts.
+  const rates = useRates({
+    transactions,
+    main: mainCurrency,
+    day: date,
+    currencies: involved,
+    origins: Object.fromEntries(involved.map((c) => [c.code, originFor(editing, c, mainCurrency, savedSides)])),
+  })
+  const rate = rates.of(currency.code)
+  // Primo cambio che manca, se ce n'è uno.
+  const missing = involved.find((c) => rates.of(c.code).value === null && !rates.of(c.code).pending)
+  // Valuta del campo del cambio aperto, e quella per cui il cambio è stato chiesto (Salva, o campo chiuso con un
+  // testo illeggibile).
+  const [rateCode, setRateCode] = useState(currency.code)
   const [rateAsked, setRateAsked] = useState<string | null>(null)
   const rateRef = useRef<HTMLInputElement>(null)
-  const ratePillRef = useRef<HTMLButtonElement>(null)
-  const pair = { from: currency.code, to: mainCurrency.code }
-  const rateMissing = foreign && rate.value === null && !rate.pending
-  const rateBad = foreign && rate.value === null && rateAsked === currency.code
+  const ratePills = useRef<Record<string, HTMLButtonElement | null>>({})
+  const rateOpen = picker === 'rate' && involved.some((c) => c.code === rateCode)
+  const open = rates.of(rateCode)
+  const rateBad = rateOpen && open.value === null && rateAsked === rateCode
 
-  /** Il cambio manca: si apre il suo campo, col fuoco, e lo si dice lì accanto. */
-  function askRate() {
+  /** Un cambio manca: si apre il suo campo, col fuoco, e lo si dice lì accanto. */
+  function askRate(code: string) {
     setError('')
-    setRateAsked(currency.code)
+    setRateAsked(code)
+    setRateCode(code)
     setPicker('rate')
     rateRef.current?.focus()
   }
   function closeRate() {
     // Scritto ma illeggibile ("abc", "0"): il campo resta aperto e lo dice.
-    if (rate.text.trim() && rate.value === null) return setRateAsked(currency.code)
+    if (open.text.trim() && open.value === null) return setRateAsked(rateCode)
     setPicker(null)
-    ratePillRef.current?.focus()
+    ratePills.current[rateCode]?.focus()
   }
-  const rateOpen = picker === 'rate'
   // Testo scritto a mano che c'era all'apertura del campo (vuoto se si mostrava il cambio proposto): Esc lo rimette.
   const rateAtOpen = useRef('')
+  const openCode = rateOpen ? rateCode : ''
   useEffect(() => {
-    if (rateOpen) rateAtOpen.current = rate.source === 'typed' ? rate.text : ''
-    // Campo chiuso lasciandolo vuoto: torna il cambio proposto.
-    else rate.leave()
-  }, [rateOpen])
+    // Un campo chiuso lasciandolo vuoto torna al cambio proposto.
+    rates.leave()
+    if (openCode) rateAtOpen.current = open.source === 'typed' ? open.text : ''
+  }, [openCode])
   useEffect(() => {
     // Tornando a "Per cosa?" il campo si chiude: riaprendo l'importo non deve salire la tastiera da sola.
     if (step !== 'amount') setPicker((p) => (p === 'rate' ? null : p))
@@ -301,7 +323,11 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
     if (amount === 0 || (mode !== 'opening' && amount < 0)) return setError(t('err.amount'))
     if (kind === 'transfer' && selected === accountId) return setError(t('err.sameAccount'))
     const worth = settle(amount, currency, mainCurrency, rate, editing)
-    if (!worth) return askRate()
+    if (!worth) return askRate(currency.code)
+    const accountAmount = onAccount(fromAccount, 'from', worth.mainAmount)
+    if (accountAmount === null) return askRate(fromAccount!.currency)
+    const toAccountAmount = onAccount(toAccount, 'to', worth.mainAmount)
+    if (toAccountAmount === null) return askRate(toAccount!.currency)
     if (kind === 'release') {
       const available = (balances.get(selected) ?? 0) + (editing?.kind === 'release' && editing.goalId === selected ? editing.mainAmount : 0)
       if (amount > available) return setError(t('add.goalBalance', { amount: formatMoney(available, mainCurrency) }))
@@ -329,6 +355,9 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
       categoryId: kind === 'expense' || kind === 'income' ? selected : undefined,
       accountId: mode === 'opening' ? selected : accountId,
       toAccountId: kind === 'transfer' ? selected : undefined,
+      // Quanto passa sui conti che non sono né nella valuta del movimento né nella principale.
+      ...(accountAmount !== undefined ? { accountAmount } : {}),
+      ...(toAccountAmount !== undefined ? { toAccountAmount } : {}),
       goalId: mode === 'goal' ? selected : kind === 'expense' ? (payFrom ?? undefined) : undefined,
       note: note.trim(),
       source: editing?.source ?? 'manual',
@@ -367,17 +396,62 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
     onDeleted(editing)
   }
 
+  /**
+   * Quanto passa su un conto che non è né nella valuta del movimento né nella principale (vedi sideAmount in
+   * money.ts): undefined se non serve salvarlo a parte, null se manca il cambio della valuta del conto.
+   */
+  function onAccount(acc: Account | undefined, side: Side, mainAmount: number): number | null | undefined {
+    if (!acc || !sideNeedsOwn(currency.code, acc.currency, mainCurrency.code)) return undefined
+    // In modifica, se quel lato aveva già la sua cifra in questa valuta, resta lei finché controvalore e cambio non si toccano.
+    // Un movimento vecchio, che la cifra non ce l'ha, la riceve qui dal cambio proposto: è il momento in cui smette
+    // di essere letto alla cieca (vedi accountBalanceOf), e l'anteprima lo mostra prima di salvare.
+    const stored = side === 'from' ? editing?.accountAmount : editing?.toAccountAmount
+    const kept = editing && typeof stored === 'number' && savedSides[side] === acc.currency ? { mainAmount: editing.mainAmount, amount: stored } : null
+    return settleSide(mainAmount, mainCurrency, cur(acc.currency), rates.of(acc.currency), kept)
+  }
+
   // ——— Importo ———
   const amountMinor = parseInput(input, currency.decimals)
   // Controvalore che verrà salvato, per l'anteprima sotto l'importo.
-  const converted = foreign && amountMinor > 0 ? settle(amountMinor * (mode === 'opening' && negative ? -1 : 1), currency, mainCurrency, rate, editing) : null
+  const converted = involved.length > 0 && amountMinor > 0 ? settle(amountMinor * (mode === 'opening' && negative ? -1 : 1), currency, mainCurrency, rate, editing) : null
+  // Anteprima: il controvalore se il movimento è in valuta, e quanto passa su un conto in un'altra valuta ancora.
+  const preview = (() => {
+    if (amountMinor === 0) return '\u00a0'
+    if (!converted) return missing ? `≈ ? ${mainCurrency.symbol}` : '\u00a0'
+    const onAccounts: string[] = []
+    for (const [acc, side] of [[fromAccount, 'from'], [toAccount, 'to']] as const) {
+      const moved = onAccount(acc, side, converted.mainAmount)
+      if (!acc || moved === undefined) continue
+      const amount = moved === null ? `? ${cur(acc.currency).symbol}` : formatMoney(Math.abs(moved), cur(acc.currency))
+      // "Su" quando i soldi arrivano sul conto: il lato di arrivo di un giroconto, ma anche un'entrata.
+      const into = side === 'to' || kind === 'income' || kind === 'opening'
+      onAccounts.push(t(into ? 'add.toAccount' : 'add.fromAccount', { amount, account: accName(acc.id) }))
+    }
+    const parts: string[] = []
+    if (foreign) {
+      const amount = formatMoney(Math.abs(converted.mainAmount), mainCurrency)
+      // Con anche la cifra di un conto la riga è già lunga: la data del cambio resta sotto il suo campo.
+      const dated = rate.source === 'last' && rate.at !== null && onAccounts.length === 0
+      parts.push(dated ? t('add.convertedLast', { amount, date: dateFmt({ day: 'numeric', month: 'short' }).format(rate.at!) }) : `≈ ${amount}`)
+    }
+    return [...parts, ...onAccounts].join(' · ') || '\u00a0'
+  })()
+  // Riga sotto il campo del cambio quando è scritto a mano: quanto vale con quel cambio.
+  const rateWorth = (() => {
+    if (open.value === null || amountMinor === 0) return ''
+    if (rateCode === currency.code) return `${formatMoney(amountMinor, currency)} ≈ ${formatMoney(convertMinor(amountMinor, currency, mainCurrency, open.value), mainCurrency)}`
+    if (!converted) return ''
+    const main = Math.abs(converted.mainAmount)
+    return `${formatMoney(main, mainCurrency)} ≈ ${formatMoney(convertMinor(main, mainCurrency, cur(rateCode), 1 / open.value), cur(rateCode))}`
+  })()
   // Guardia: il conto da cui escono i soldi andrebbe sotto zero? Di solito è un errore di contabilità.
   const outAccount = kind === 'expense' || kind === 'transfer' ? accounts.find((a) => a.id === accountId) : undefined
   // Saldo del conto prima di questo movimento (in modifica il movimento è già nel saldo: lo si toglie).
   const accountLeft = (() => {
     if (!outAccount || outAccount.currency !== currency.code) return null
     let balance = accountBalance(outAccount, data)
-    if (editing && editing.accountId === outAccount.id && editing.date <= Date.now() && editing.currency === currency.code) balance += editing.amount
+    // Quello che il movimento in modifica aveva tolto dal conto, nella valuta del conto (anche se era scritto in un'altra).
+    if (editing && editing.accountId === outAccount.id && editing.date <= Date.now() && (editing.kind === 'expense' || editing.kind === 'transfer')) balance += sideAmount(editing, 'from', outAccount.currency, mainCurrency.code) ?? 0
     return balance
   })()
   const overdraft =
@@ -678,18 +752,8 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
                 <IconCalculator size={20} />
               </button>
               <span className={`amount-big${input ? '' : ' placeholder'}`}>{amountText}</span>
-              {/* In valuta la riga c'è sempre, anche vuota: comparendo alla prima cifra sposterebbe il tastierino sotto il dito. */}
-              {foreign && (
-                <span className="amount-converted">
-                  {converted
-                    ? rate.source === 'last' && rate.at !== null
-                      ? t('add.convertedLast', { amount: formatMoney(Math.abs(converted.mainAmount), mainCurrency), date: dateFmt({ day: 'numeric', month: 'short' }).format(rate.at) })
-                      : `≈ ${formatMoney(Math.abs(converted.mainAmount), mainCurrency)}`
-                    : rateMissing && amountMinor > 0
-                      ? `≈ ? ${mainCurrency.symbol}`
-                      : '\u00a0'}
-                </span>
-              )}
+              {/* Con una valuta estera di mezzo la riga c'è sempre, anche vuota: comparendo alla prima cifra sposterebbe il tastierino sotto il dito. */}
+              {involved.length > 0 && <span className="amount-converted">{preview}</span>}
               {useAll !== null && useAll > 0 && useAll !== amountMinor && (
                 <button className="use-all" onClick={() => (setInput(inputFromMinor(useAll, currency.decimals)), setError(''))}>
                   {t('add.useAll', { amount: formatMoney(useAll, currency) })}
@@ -745,44 +809,56 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
                   <IconChevronDown size={14} className="ctx-caret" />
                 </button>
               )}
-              {foreign && (
-                <button
-                  ref={ratePillRef}
-                  className={`ctx rate-pill${rateOpen ? ' on' : ''}${rateMissing ? ' need' : ''}${rateBad ? ' bad' : ''}`}
-                  aria-expanded={rateOpen}
-                  onClick={() => setPicker(rateOpen ? null : 'rate')}
-                >
-                  {rateMissing ? <IconPlus size={15} /> : <IconArrowsExchange size={15} />}
-                  {rateMissing ? (
-                    t('add.rate', pair)
-                  ) : (
-                    <>
-                      <span className="sr-only">{t('add.rate', pair)}: </span>
-                      {`1 ${currency.symbol} = ${rate.value !== null ? rateShown(rate.value) : '…'} ${mainCurrency.symbol}`}
-                    </>
-                  )}
-                </button>
-              )}
+              {/* Una pillola del cambio per ogni valuta estera coinvolta (di solito una sola). */}
+              {involved.map((c) => {
+                const view = rates.of(c.code)
+                const lacks = view.value === null && !view.pending
+                const on = rateOpen && rateCode === c.code
+                const pair = { from: c.code, to: mainCurrency.code }
+                return (
+                  <button
+                    key={c.code}
+                    ref={(el) => {
+                      ratePills.current[c.code] = el
+                    }}
+                    className={`ctx rate-pill${on ? ' on' : ''}${lacks ? ' need' : ''}${view.value === null && rateAsked === c.code ? ' bad' : ''}`}
+                    aria-expanded={on}
+                    onClick={() => (on ? setPicker(null) : (setRateCode(c.code), setPicker('rate')))}
+                  >
+                    {lacks ? <IconPlus size={15} /> : <IconArrowsExchange size={15} />}
+                    {lacks ? (
+                      t('add.rate', pair)
+                    ) : (
+                      <>
+                        <span className="sr-only">{t('add.rate', pair)}: </span>
+                        {`1 ${c.symbol} = ${view.value !== null ? rateShown(view.value) : '…'} ${mainCurrency.symbol}`}
+                      </>
+                    )}
+                  </button>
+                )
+              })}
             </div>
 
-            {rateOpen && foreign && (
+            {rateOpen && (
               <RateField
+                // Un campo per valuta: passando da una pillola all'altra riparte da capo, col fuoco.
+                key={rateCode}
                 id="add-rate"
-                from={currency.code}
+                from={rateCode}
                 to={mainCurrency.code}
-                value={rate.text}
-                placeholder={rate.proposal ? rate.proposal.value : null}
-                hint={rateHint(rate, { bad: rateBad, from: currency, main: mainCurrency, amount: amountMinor, day: date })}
+                value={open.text}
+                placeholder={open.proposal ? open.proposal.value : null}
+                hint={rateHint(open, { bad: rateBad, from: cur(rateCode), main: mainCurrency, worth: rateWorth, day: date })}
                 invalid={rateBad}
                 inputRef={rateRef}
                 autoFocus
                 // Riscrivendo, l'errore di prima non vale più: torna solo al prossimo tentativo.
-                onChange={(text) => (rate.type(text), setRateAsked(null))}
-                onLeave={rate.leave}
+                onChange={(text) => (rates.type(rateCode, text), setRateAsked(null))}
+                onLeave={rates.leave}
                 onEnter={closeRate}
                 onDone={closeRate}
                 // Esc annulla: torna quello che c'era aprendo il campo. Confermano Invio, "Fatto", la pillola e Salva.
-                onEscape={() => (rate.type(rateAtOpen.current), setRateAsked(null), setPicker(null), ratePillRef.current?.focus())}
+                onEscape={() => (rates.type(rateCode, rateAtOpen.current), setRateAsked(null), setPicker(null), ratePills.current[rateCode]?.focus())}
               />
             )}
 
@@ -907,8 +983,8 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
             <button className="save-btn" onClick={save}>
               {amountMinor === 0
                 ? t('add.enterAmount')
-                : rateMissing
-                  ? t('err.rate', pair)
+                : missing
+                  ? t('err.rate', { from: missing.code, to: mainCurrency.code })
                   : t('add.saveBtn', { amount: formatMoney(amountMinor * (negative ? -1 : 1), currency) })}
             </button>
 

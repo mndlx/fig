@@ -33,7 +33,7 @@ import { IconLeft } from './icons'
 import { ImportCsv } from './ImportCsv'
 import { authEnabled, currentUser, deleteAccount, isLocalOnly, localModeAllowed, setLocalOnly, signIn, signOut } from './auth'
 import { adoptionPending, clearLocalData, haltSync, leaveAccount, resumeSync, syncNow, unlinkDevice, useSyncStatus } from './sync'
-import { convertMinor, fetchRate, formatMoney, fromMinor, parseTyped, rebaseTransaction, soundRate } from './money'
+import { convertMinor, fetchRate, formatMoney, fromMinor, parseTyped, rebaseRule, rebaseTransaction, soundRate } from './money'
 import { rateInput } from './rate'
 import { readTheme, writeTheme, type Theme } from './theme'
 
@@ -871,7 +871,9 @@ function RecurringForm({ data, rule, onDone }: { data: AppData; rule: Recurring;
     const value = parseTyped(amount, currency.decimals)
     if (value <= 0) return setError(t('err.amount'))
     const ratio = rule.amount ? rule.mainAmount / rule.amount : 1
-    await updateSeries({ ...rule, amount: value, mainAmount: Math.round(value * ratio), frequency, note: note.trim(), active })
+    // L'importo sul conto, se la serie ne ha uno a parte, segue l'importo nella stessa proporzione.
+    const onAccount = rule.accountAmount !== undefined && rule.amount ? { accountAmount: Math.round(value * (rule.accountAmount / rule.amount)) } : {}
+    await updateSeries({ ...rule, amount: value, mainAmount: Math.round(value * ratio), ...onAccount, frequency, note: note.trim(), active })
     onDone()
   }
 
@@ -1058,7 +1060,8 @@ function AccountForm({ data, acc, onDone }: { data: AppData; acc?: Account; onDo
     seeded.current = openingAmount
     setBalance(openingAmount !== undefined ? numberToInput(fromMinor(openingAmount, openingDecimals)) : '')
   }, [openingAmount, openingDecimals])
-  const used = acc ? data.transactions.some((tx) => tx.kind !== 'opening' && (tx.accountId === acc.id || tx.toAccountId === acc.id)) : false
+  // Anche una ricorrenza usa il conto: può portare un importo nella sua valuta (vedi Recurring.accountAmount).
+  const used = acc ? data.transactions.some((tx) => tx.kind !== 'opening' && (tx.accountId === acc.id || tx.toAccountId === acc.id)) || data.recurring.some((r) => r.accountId === acc.id) : false
 
   const openingCurrency = opening?.currency
   useEffect(() => {
@@ -1264,26 +1267,31 @@ function MainCurrencyForm({ data, code, onDone }: { data: AppData; code: string;
     const cur = new Map(currencies.map((c) => [c.code, c]))
     const toTarget = (minor: number) => Math.round(fromMinor(minor, mainCurrency.decimals) * x * 10 ** target.decimals)
     await db.transaction('rw', [db.transactions, db.accounts, db.settings, db.goals, db.recurring], async () => {
+      // La valuta di partenza è quella a schermo: se nel frattempo è già cambiata (un altro dispositivo), non si converte
+      // due volte, e i controvalori già nella nuova valuta non finiscono tra gli importi sui conti.
+      if (((await db.settings.get('main'))?.mainCurrency ?? 'EUR') !== mainCurrency.code) return
       // Obiettivi dei gomitoli e ricorrenti sono espressi nella valuta principale: vanno convertiti anche loro.
       const goals = await db.goals.toArray()
       await db.goals.bulkPut(goals.map((g) => ({ ...g, target: toTarget(g.target) })))
+      // Le valute dei conti servono a tenere fermo quello che ogni movimento ha spostato su ognuno (vedi rebaseTransaction).
+      const accs = await db.accounts.toArray()
+      const accountCurrency = new Map(accs.map((a) => [a.id, a.currency]))
       const rules = await db.recurring.toArray()
-      await db.recurring.bulkPut(
-        rules.map((r) => {
-          if (r.currency === target.code) return { ...r, rate: 1, mainAmount: r.amount }
-          // Gli accantonamenti sono nella valuta principale: diventano nella nuova.
-          if (r.kind === 'save') return { ...r, currency: target.code, rate: 1, amount: toTarget(r.amount), mainAmount: toTarget(r.amount) }
-          const from = cur.get(r.currency) ?? mainCurrency
-          const newRate = r.rate * x
-          return { ...r, rate: newRate, mainAmount: convertMinor(r.amount, from, target, newRate) }
-        }),
-      )
+      await db.recurring.bulkPut(rules.map((r) => rebaseRule(r, cur.get(r.currency) ?? mainCurrency, mainCurrency, target, x, accountCurrency.get(r.accountId))))
       const txs = await db.transactions.toArray()
       await db.transactions.bulkPut(
-        // La regola per ogni movimento sta in money.ts (rebaseTransaction).
-        txs.map((tx) => rebaseTransaction(tx, cur.get(tx.currency) ?? mainCurrency, mainCurrency, target, x)),
+        // La regola per ogni movimento sta in money.ts (rebaseTransaction). Messi da parte e ripresi non toccano i conti.
+        txs.map((tx) =>
+          rebaseTransaction(
+            tx,
+            cur.get(tx.currency) ?? mainCurrency,
+            mainCurrency,
+            target,
+            x,
+            tx.kind === 'save' || tx.kind === 'release' ? {} : { from: accountCurrency.get(tx.accountId), to: tx.toAccountId ? accountCurrency.get(tx.toAccountId) : undefined },
+          ),
+        ),
       )
-      const accs = await db.accounts.toArray()
       await db.accounts.bulkPut(
         accs.map((a) => ({
           ...a,

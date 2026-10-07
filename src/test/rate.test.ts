@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Currency, Transaction } from '../db'
 import { setLang } from '../i18n'
 import { convertMinor, fetchRate, rateText, soundRate } from '../money'
-import { dayEnd, dayKey, gotRate, lastRate, leaveRate, needsFetch, NO_RATES, originOf, proposeRate, rateInput, rateKey, rateView, readRate, settle, typeRate, type RateContext, type RateFacts, type RateSource } from '../rate'
+import { dayEnd, dayKey, gotRate, lastRate, leaveRate, needsFetch, NO_RATES, originFor, originOf, proposeRate, rateInput, rateKey, rateView, readRate, settle, settleSide, typeRate, type RateContext, type RateFacts, type RateSource } from '../rate'
 import { rateShown } from '../RateField'
 import { ALL, EUR, tx } from './helpers'
 
@@ -442,5 +442,59 @@ describe('cambio che il servizio non pubblica', () => {
     expect(await fetchRate('USD', 'EUR', new Date('2026-10-07'), 40)).toBeNull()
     expect(Date.now() - started).toBeLessThan(4000)
     expect(hang).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('conto in una valuta che non è né quella del movimento né la principale', () => {
+  const v = (value: number | null, source: RateSource = 'last') => ({ value, source })
+
+  it('quanto ci passa: il controvalore diviso per il cambio della valuta del conto, col suo segno', () => {
+    // 5.000 L pagati dal conto in euro, con l'euro a 97,5: 51,28 €.
+    expect(settleSide(5000, ALL, EUR, v(97.5))).toBe(5128)
+    expect(settleSide(-5000, ALL, EUR, v(97.5))).toBe(-5128)
+    // 20,00 € (1.940 L) pagati dal conto in dollari, col dollaro a 92: 21,09 $.
+    expect(settleSide(1940, ALL, USD, v(92))).toBe(2109)
+    for (const none of [null, 0, NaN, -1]) expect(settleSide(5000, ALL, EUR, v(none))).toBeNull()
+  })
+
+  it('in modifica resta la cifra salvata finché controvalore e cambio sono quelli del movimento', () => {
+    // La banca aveva tolto 51,40 €, non i 51,28 del cambio tondo.
+    const kept = { mainAmount: 5000, amount: 5140 }
+    expect(settleSide(5000, ALL, EUR, v(97.27626459, 'own'), kept)).toBe(5140)
+    // Anche se dal cambio verrebbe un'altra cifra (5.000 / 97,5 = 51,28): resta quella salvata.
+    expect(settleSide(5000, ALL, EUR, v(97.5, 'own'), kept)).toBe(5140)
+    // Importo cambiato, cambio scritto a mano o arrivato dal servizio: si rifà.
+    expect(settleSide(10000, ALL, EUR, v(97.27626459, 'own'), kept)).toBe(10280)
+    expect(settleSide(5000, ALL, EUR, v(97.5, 'typed'), kept)).toBe(5128)
+    expect(settleSide(5000, ALL, EUR, v(98, 'day'), kept)).toBe(5102)
+  })
+
+  it('il cambio suo di un conto è quello che lega la cifra salvata al controvalore', () => {
+    // Spesa di 5.000 L dal conto in euro, usciti 51,40 €: il cambio più semplice che rifà quella cifra è 97,28
+    // (5.000 / 51,40 farebbe 97,2762645…).
+    const spesa = tx('expense', 5000, day(5), { currency: 'ALL', accountId: 'euro', accountAmount: 5140 })
+    const origin = originFor(spesa, EUR, ALL, { from: 'EUR' })
+    expect(origin).toEqual({ day: '2026-10-05', rate: 97.28 })
+    // Rifatto con quel cambio si ritrova la cifra; e comunque, se niente è toccato, resta lei.
+    expect(settleSide(5000, ALL, EUR, { value: origin!.rate, source: 'own' })).toBe(5140)
+    // Giroconto: il lato di arrivo ha la sua.
+    const giro = tx('transfer', 5000, day(5), { currency: 'ALL', accountId: 'lek', toAccountId: 'euro', toAccountAmount: 5128 })
+    // 5.000 L arrivati come 51,28 €: 97,5, quello che era stato scritto (non 97,5039…).
+    expect(originFor(giro, EUR, ALL, { from: 'ALL', to: 'EUR' })?.rate).toBe(97.5)
+    // Tre valute: 20,00 € (1.940 L) pagati dal conto in dollari, usciti 21,09 $. Il cambio del dollaro si ricava
+    // dal controvalore (1.940 L / 21,09 $ → 92), non dall'importo in euro.
+    const tre = tx('expense', 2000, day(5), { accountId: 'usd', rate: 97, mainAmount: 1940, accountAmount: 2109 })
+    expect(originFor(tre, USD, ALL, { from: 'USD' })).toEqual({ day: '2026-10-05', rate: 92 })
+    // Il verso conta: 146 L usciti come 1,50 € sono a 97,3 (a 97 farebbero 1,51 €).
+    const piccolo = tx('expense', 146, day(5), { currency: 'ALL', accountId: 'euro', accountAmount: 150 })
+    const suo = originFor(piccolo, EUR, ALL, { from: 'EUR' })
+    expect(suo?.rate).toBe(97.3)
+    expect(settleSide(146, ALL, EUR, { value: suo!.rate, source: 'own' })).toBe(150)
+    // Senza cifra salvata, o per una valuta che il movimento non tocca, non c'è un cambio suo.
+    expect(originFor(tx('expense', 5000, day(5), { currency: 'ALL', accountId: 'euro' }), EUR, ALL, { from: 'EUR' })).toBeNull()
+    expect(originFor(spesa, USD, ALL, { from: 'EUR' })).toBeNull()
+    expect(originFor(spesa, ALL, ALL, { from: 'EUR' })).toBeNull()
+    // Nella valuta del movimento resta il suo cambio vero, come prima.
+    expect(originFor(eur(day(5), 97.35), EUR, ALL, { from: 'ALL' })).toEqual(originOf(eur(day(5), 97.35), EUR, ALL))
   })
 })

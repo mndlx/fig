@@ -1,6 +1,6 @@
 import type { Currency, Transaction } from './db'
 import { decimalSep } from './i18n'
-import { convertMinor, rateText, soundRate } from './money'
+import { convertMinor, rateText, simplestRate, soundRate } from './money'
 
 /**
  * Cambio di un movimento in valuta, come lo vede chi lo scrive (foglio "+", allineamento del saldo).
@@ -134,8 +134,22 @@ export function lastRate(transactions: readonly Transaction[], from: Currency, m
 
 /** Giorno e cambio vero del movimento in modifica, se è scritto in `from` e `from` non è la valuta principale. */
 export function originOf(editing: Transaction | null | undefined, from: Currency, main: Currency): RateContext['origin'] {
-  if (!editing || editing.currency !== from.code || from.code === main.code) return null
-  return { day: dayKey(editing.date), rate: soundRate(editing, from, main) }
+  return originFor(editing, from, main, {})
+}
+
+/**
+ * Come originOf, per ogni valuta che il movimento in modifica tocca: quella in cui è scritto (il suo cambio vero)
+ * o quella di uno dei suoi conti, quando l'importo passato lì è salvato a parte: il cambio "suo" è allora quello
+ * che lega quell'importo al controvalore. `sides` sono le valute dei conti del movimento com'è salvato.
+ */
+export function originFor(editing: Transaction | null | undefined, currency: Currency, main: Currency, sides: { from?: string; to?: string }): RateContext['origin'] {
+  if (!editing || currency.code === main.code) return null
+  const day = dayKey(editing.date)
+  if (editing.currency === currency.code) return { day, rate: soundRate(editing, currency, main) }
+  const moved = sides.from === currency.code && typeof editing.accountAmount === 'number' ? editing.accountAmount : sides.to === currency.code && typeof editing.toAccountAmount === 'number' ? editing.toAccountAmount : null
+  if (moved === null) return null
+  // Il più semplice che rifà quella cifra: 5.000 L usciti come 51,28 € sono a 97,5, non a 97,5039.
+  return { day, rate: simplestRate(moved, currency, editing.mainAmount, main, 'amount') ?? 0 }
 }
 
 /** Cambio del movimento in modifica; null se non ne ha uno che si possa usare (zero, assente): vale come nuovo. */
@@ -222,4 +236,15 @@ export function settle(
   if (editing && view.source === 'own' && editing.currency === from.code && editing.amount === amount) return { rate: view.value, mainAmount: editing.mainAmount }
   // Segno a parte: si arrotonda il valore, poi si rimette il meno (-1,50 € a 97 fanno -146, non -145).
   return { rate: view.value, mainAmount: Math.sign(amount) * convertMinor(Math.abs(amount), from, main, view.value) }
+}
+
+/**
+ * Importo che passa su un conto in una valuta che non è né quella del movimento né la principale (vedi sideAmount
+ * in money.ts), ricavato dal controvalore col cambio di quella valuta; null se il cambio manca. Ha il segno del
+ * controvalore. In modifica, se controvalore e cambio sono quelli del movimento, resta la cifra salvata.
+ */
+export function settleSide(mainAmount: number, main: Currency, side: Currency, view: Pick<RateView, 'value' | 'source'>, kept?: { mainAmount: number; amount: number } | null): number | null {
+  if (!good(view.value)) return null
+  if (kept && view.source === 'own' && kept.mainAmount === mainAmount) return kept.amount
+  return Math.sign(mainAmount) * convertMinor(Math.abs(mainAmount), main, side, 1 / view.value)
 }

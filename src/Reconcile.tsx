@@ -221,7 +221,13 @@ export function Reconcile({ data, account: initialAccount, onClose, onSaved }: P
             to={mainCurrency.code}
             value={rate.text}
             placeholder={rate.proposal ? rate.proposal.value : null}
-            hint={rateHint(rate, { bad: rateBad, from: currency, main: mainCurrency, amount: Math.abs(diff), day: today })}
+            hint={rateHint(rate, {
+              bad: rateBad,
+              from: currency,
+              main: mainCurrency,
+              worth: diff !== 0 && rate.value !== null ? `${formatMoney(Math.abs(diff), currency)} ≈ ${formatMoney(convertMinor(Math.abs(diff), currency, mainCurrency, rate.value), mainCurrency)}` : '',
+              day: today,
+            })}
             invalid={rateBad}
             inputRef={rateRef}
             onChange={(text) => (rate.type(text), setRateAsked(null))}

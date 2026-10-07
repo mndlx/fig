@@ -8,29 +8,29 @@ const row = (index: number, day: number, kind: 'expense' | 'income', amount: num
 
 describe('import: movimenti già presenti', () => {
   it('stesso giorno, stesso importo: già presente', () => {
-    const m = matchExisting([row(0, 28, 'expense', 350)], [tx('expense', 350, at(28, 9))], 'main', 'EUR')
+    const m = matchExisting([row(0, 28, 'expense', 350)], [tx('expense', 350, at(28, 9))], 'main', 'EUR', 'EUR')
     expect(m.get(0)).toEqual({ exact: true, date: at(28, 9) })
   })
 
   it('due righe uguali nello stesso giorno e un solo movimento in FIG: una resta da importare', () => {
-    const m = matchExisting([row(0, 28, 'expense', 120), row(1, 28, 'expense', 120)], [tx('expense', 120, at(28, 9))], 'main', 'EUR')
+    const m = matchExisting([row(0, 28, 'expense', 120), row(1, 28, 'expense', 120)], [tx('expense', 120, at(28, 9))], 'main', 'EUR', 'EUR')
     expect(m.size).toBe(1)
     expect(m.has(0)).toBe(true)
     expect(m.has(1)).toBe(false)
   })
 
   it('registrato a mano due giorni prima della data contabile: probabile doppione', () => {
-    const m = matchExisting([row(0, 30, 'expense', 4530)], [tx('expense', 4530, at(28, 18))], 'main', 'EUR')
+    const m = matchExisting([row(0, 30, 'expense', 4530)], [tx('expense', 4530, at(28, 18))], 'main', 'EUR', 'EUR')
     expect(m.get(0)).toEqual({ exact: false, date: at(28, 18) })
   })
 
   it('oltre la finestra di tre giorni non è un doppione', () => {
-    expect(matchExisting([row(0, 30, 'expense', 4530)], [tx('expense', 4530, at(25))], 'main', 'EUR').size).toBe(0)
+    expect(matchExisting([row(0, 30, 'expense', 4530)], [tx('expense', 4530, at(25))], 'main', 'EUR', 'EUR').size).toBe(0)
   })
 
   it('la corrispondenza nello stesso giorno vince su quella vicina', () => {
     const existing = [tx('expense', 500, at(27)), tx('expense', 500, at(28))]
-    const m = matchExisting([row(0, 28, 'expense', 500), row(1, 29, 'expense', 500)], existing, 'main', 'EUR')
+    const m = matchExisting([row(0, 28, 'expense', 500), row(1, 29, 'expense', 500)], existing, 'main', 'EUR', 'EUR')
     expect(m.get(0)).toEqual({ exact: true, date: at(28) })
     // L'altra riga prende quello del 27, a due giorni di distanza.
     expect(m.get(1)).toEqual({ exact: false, date: at(27) })
@@ -38,20 +38,44 @@ describe('import: movimenti già presenti', () => {
 
   it('un prelievo registrato come giroconto verso i contanti copre la riga della banca', () => {
     const withdrawal = tx('transfer', 10000, at(30, 18), { toAccountId: 'cash' })
-    expect(accountEffect(withdrawal, 'main', 'EUR')).toEqual({ kind: 'expense', amount: 10000 })
-    expect(accountEffect(withdrawal, 'cash', 'EUR')).toEqual({ kind: 'income', amount: 10000 })
-    expect(matchExisting([row(0, 30, 'expense', 10000)], [withdrawal], 'main', 'EUR').get(0)?.exact).toBe(true)
+    expect(accountEffect(withdrawal, 'main', 'EUR', 'EUR')).toEqual({ kind: 'expense', amount: 10000 })
+    expect(accountEffect(withdrawal, 'cash', 'EUR', 'EUR')).toEqual({ kind: 'income', amount: 10000 })
+    expect(matchExisting([row(0, 30, 'expense', 10000)], [withdrawal], 'main', 'EUR', 'EUR').get(0)?.exact).toBe(true)
   })
 
   it('non confonde verso, conto, valuta, né saldi iniziali e accantonamenti', () => {
     const existing = [
       tx('income', 350, at(28)),
       tx('expense', 350, at(28), { accountId: 'cash' }),
-      tx('expense', 350, at(28), { currency: 'ALL' }),
+      // 350 L pagati dal conto in euro (principale): ne sono usciti 3,59 €, non 3,50.
+      tx('expense', 350, at(28), { currency: 'ALL', rate: 0.01026, mainAmount: 359 }),
       tx('opening', 350, at(28)),
       tx('save', 350, at(28), { goalId: 'g' }),
     ]
-    expect(matchExisting([row(0, 28, 'expense', 350)], existing, 'main', 'EUR').size).toBe(0)
+    expect(matchExisting([row(0, 28, 'expense', 350)], existing, 'main', 'EUR', 'EUR').size).toBe(0)
+  })
+})
+
+describe('import: movimenti scritti in un’altra valuta', () => {
+  it('conto nella valuta principale: conta il controvalore, cioè quello che la banca ha addebitato', () => {
+    // 20,00 € pagati con la carta del conto in lek: sull'estratto sono 1.940 L.
+    const paid = tx('expense', 2000, at(28, 9), { rate: 97, mainAmount: 1940 })
+    expect(accountEffect(paid, 'main', 'ALL', 'ALL')).toEqual({ kind: 'expense', amount: 1940 })
+    expect(matchExisting([row(0, 28, 'expense', 1940)], [paid], 'main', 'ALL', 'ALL').get(0)).toEqual({ exact: true, date: at(28, 9) })
+    // La riga da 2.000 L dell'estratto è un'altra cosa.
+    expect(matchExisting([row(0, 28, 'expense', 2000)], [paid], 'main', 'ALL', 'ALL').size).toBe(0)
+  })
+
+  it('conto in valuta: conta l’importo passato sul conto, se è scritto', () => {
+    // 5.000 L pagati dal conto in euro: usciti 51,28 €.
+    const paid = tx('expense', 5000, at(28, 9), { currency: 'ALL', accountId: 'euro', accountAmount: 5128 })
+    expect(accountEffect(paid, 'euro', 'EUR', 'ALL')).toEqual({ kind: 'expense', amount: 5128 })
+    // Giroconto in lek verso il conto in euro: per il conto in euro è un'entrata di 51,28 €.
+    const moved = tx('transfer', 5000, at(28, 9), { currency: 'ALL', accountId: 'lek', toAccountId: 'euro', toAccountAmount: 5128 })
+    expect(accountEffect(moved, 'euro', 'EUR', 'ALL')).toEqual({ kind: 'income', amount: 5128 })
+    expect(accountEffect(moved, 'lek', 'ALL', 'ALL')).toEqual({ kind: 'expense', amount: 5000 })
+    // Senza l'importo sul conto non si sa quanto è passato: non si confronta con niente.
+    expect(accountEffect(tx('expense', 5000, at(28, 9), { currency: 'ALL', accountId: 'euro' }), 'euro', 'EUR', 'ALL')).toBeNull()
   })
 })
 

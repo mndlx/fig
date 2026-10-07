@@ -38,6 +38,8 @@ function occurrence(rule: Recurring, ts: number): Transaction {
     date: ts,
     categoryId: rule.categoryId || undefined,
     accountId: rule.accountId,
+    // Importo sul conto, se la serie ne ha uno a parte: senza, il saldo del conto lo dovrebbe stimare.
+    ...(rule.accountAmount !== undefined ? { accountAmount: rule.accountAmount } : {}),
     goalId: rule.goalId,
     note: rule.note,
     source: 'manual',
@@ -86,6 +88,7 @@ export async function createSeries(first: Transaction, frequency: Frequency): Pr
     mainAmount: first.mainAmount,
     categoryId: first.categoryId ?? '',
     accountId: first.accountId,
+    ...(first.accountAmount !== undefined ? { accountAmount: first.accountAmount } : {}),
     goalId: first.goalId,
     note: first.note,
     frequency,

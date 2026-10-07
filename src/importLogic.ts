@@ -1,5 +1,5 @@
 import type { Currency, Transaction } from './db'
-import { convertMinor, soundRate } from './money'
+import { convertMinor, sideAmount, soundRate } from './money'
 
 /**
  * Logica dell'import degli estratti conto, separata dalla schermata per poterla provare:
@@ -28,16 +28,16 @@ export function dayStart(ts: number): number {
  * Cosa fa a un conto un movimento già in FIG: uscita o entrata e di quanto, nella valuta del conto.
  * I giroconti contano (un prelievo al bancomat è un'uscita dal conto); saldi iniziali e
  * accantonamenti negli obiettivi no, perché non sono movimenti della banca.
+ * Vale anche per i movimenti scritti in un'altra valuta, quando si sa quanto è passato sul conto (vedi sideAmount):
+ * 20,00 € pagati con la carta del conto in lek sono i 1.940 L dell'estratto.
  */
-export function accountEffect(tx: Transaction, accountId: string, currency: string): { kind: RowKind; amount: number } | null {
-  if (tx.currency !== currency) return null
-  if (tx.kind === 'expense' && tx.accountId === accountId) return { kind: 'expense', amount: tx.amount }
-  if (tx.kind === 'income' && tx.accountId === accountId) return { kind: 'income', amount: tx.amount }
-  if (tx.kind === 'transfer') {
-    if (tx.accountId === accountId) return { kind: 'expense', amount: tx.amount }
-    if (tx.toAccountId === accountId) return { kind: 'income', amount: tx.amount }
-  }
-  return null
+export function accountEffect(tx: Transaction, accountId: string, currency: string, mainCode: string): { kind: RowKind; amount: number } | null {
+  const from = tx.accountId === accountId
+  const to = tx.kind === 'transfer' && tx.toAccountId === accountId
+  const kind: RowKind | null = tx.kind === 'expense' && from ? 'expense' : tx.kind === 'income' && from ? 'income' : tx.kind === 'transfer' && from ? 'expense' : to ? 'income' : null
+  if (!kind) return null
+  const amount = sideAmount(tx, to && !from ? 'to' : 'from', currency, mainCode)
+  return amount === null ? null : { kind, amount: Math.abs(amount) }
 }
 
 export interface ExistingMatch {
@@ -53,9 +53,9 @@ export interface ExistingMatch {
  * registrato lasciano l'altro da importare. Prima le corrispondenze nello stesso giorno, poi quelle
  * a pochi giorni di distanza (la banca contabilizza spesso dopo la data del pagamento).
  */
-export function matchExisting(rows: ImportRow[], transactions: Transaction[], accountId: string, currency: string, windowDays = 3): Map<number, ExistingMatch> {
+export function matchExisting(rows: ImportRow[], transactions: Transaction[], accountId: string, currency: string, mainCode: string, windowDays = 3): Map<number, ExistingMatch> {
   const pool = transactions.flatMap((tx) => {
-    const effect = accountEffect(tx, accountId, currency)
+    const effect = accountEffect(tx, accountId, currency, mainCode)
     return effect ? [{ ...effect, date: tx.date, day: dayStart(tx.date), used: false }] : []
   })
   const out = new Map<number, ExistingMatch>()

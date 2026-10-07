@@ -188,6 +188,7 @@ export function ImportCsv({ data, onDone }: Props) {
       transactions,
       accountId,
       currency.code,
+      mainCurrency.code,
     )
     const limit = opening ? dayStart(opening.date) : null
     const items: Item[] = parsed.map((p) => {

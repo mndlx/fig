@@ -365,24 +365,65 @@ function planMerge(local: LocalData, archive: Archive, opts: MergeOptions): Adop
     const value = str(row.currency) === a.accountMain ? scale(num(row.amount), a.accountMain) : toMain(num(row.mainAmount))
     return { ...row, currency: a.accountMain, amount: value, mainAmount: value, rate: 1 }
   }
-  /** Gli altri restano con l'importo scritto; cambia il controvalore, portato col cambio (non rifatto da importo × tasso). */
-  const withValue = (row: Row): Row => {
+  // Valuta di ogni conto dopo l'unione: quelli che restano del dispositivo (compresi i conti separati), poi quelli dell'account.
+  const mineAccounts = new Map(a.mine.filter((m) => m.tbl === 'accounts').map((m) => [str(m.row.id), str(m.row.currency)]))
+  const accountCurrency = (id: unknown): string | undefined => {
+    if (!id) return undefined
+    const there = liveRow(archive, 'accounts', str(id))
+    return mineAccounts.get(str(id)) ?? (there ? str(there.currency) : undefined) ?? (local.accounts ?? []).map((acc) => (acc.id === id ? str(acc.currency) : undefined)).find(Boolean)
+  }
+  type Sides = { from?: string; to?: string }
+  /**
+   * Gli altri restano con l'importo scritto; cambia il controvalore, portato col cambio (non rifatto da importo × tasso).
+   * `sides` sono le valute dei conti toccati. Quello che è passato su ognuno non cambia, ma dove sta scritto sì
+   * (come nel cambio della valuta principale, vedi rebaseTransaction in money.ts): un conto nella valuta del
+   * dispositivo lo leggeva nel controvalore, che ora passa a un'altra valuta, quindi va salvato a parte; un conto
+   * nella valuta dell'account lo trova nel controvalore, che diventa esattamente quella cifra.
+   */
+  const withValue = (row: Row, sides: Sides): Row => {
     const code = str(row.currency)
     const amount = scale(num(row.amount), code)
-    if (code === a.accountMain) return gap || amount !== num(row.amount) ? { ...row, amount, mainAmount: amount, rate: 1 } : row
-    const mainAmount = toMain(num(row.mainAmount))
-    if (!gap) return amount === num(row.amount) && mainAmount === num(row.mainAmount) ? row : { ...row, amount, mainAmount }
-    // Nella valuta del dispositivo il tasso è il cambio dato; nelle altre lo si ricava dai due importi
-    // (quello salvato può essere sbagliato, per esempio nei saldi iniziali dei conti in valuta).
+    const own = (value: unknown, currency: string) => (typeof value === 'number' && Number.isFinite(value) ? scale(value, currency) : null)
+    // Importo sul conto prima dell'unione, già nella scala che la sua valuta avrà dopo.
+    const was = (side: 'from' | 'to'): number | null => {
+      const currency = sides[side]
+      if (!currency) return null
+      if (currency === code) return amount
+      if (currency === a.deviceMain) return scale(num(row.mainAmount), a.deviceMain)
+      return own(side === 'from' ? row.accountAmount : row.toAccountAmount, currency)
+    }
+    const kept = (side: 'from' | 'to') => (sides[side] && sides[side] !== code && sides[side] !== a.accountMain ? was(side) : null)
+    const onAccounts = (next: Row): Row => {
+      const from = kept('from')
+      const to = kept('to')
+      if (from === null && to === null && next.accountAmount === undefined && next.toAccountAmount === undefined) return next
+      const out = { ...next }
+      if (from !== null) out.accountAmount = from
+      else delete out.accountAmount
+      if (to !== null) out.toAccountAmount = to
+      else delete out.toAccountAmount
+      return canonical(out) === canonical(next) ? next : out
+    }
+    if (code === a.accountMain) return onAccounts(gap || amount !== num(row.amount) ? { ...row, amount, mainAmount: amount, rate: 1 } : row)
+    if (!gap) {
+      const mainAmount = toMain(num(row.mainAmount))
+      return onAccounts(amount === num(row.amount) && mainAmount === num(row.mainAmount) ? row : { ...row, amount, mainAmount })
+    }
+    // Un conto nella valuta dell'account: il controvalore è quello che c'è passato.
+    const landed = (sides.from === a.accountMain ? was('from') : null) ?? (sides.to === a.accountMain ? was('to') : null)
+    const exact = landed !== null && landed !== 0 && amount !== 0
+    const mainAmount = exact ? sign(amount) * Math.abs(landed) : toMain(num(row.mainAmount))
+    // Nella valuta del dispositivo il tasso è il cambio dato; nelle altre (o se il controvalore non viene da lì)
+    // lo si ricava dai due importi: quello salvato può essere sbagliato, per esempio nei saldi iniziali dei conti in valuta.
     let rate = x
-    if (code !== a.deviceMain) {
+    if (code !== a.deviceMain || exact) {
       rate = amount !== 0 ? Number((Math.abs(mainAmount) / 10 ** dec.merged(a.accountMain) / (Math.abs(amount) / 10 ** dec.merged(code))).toPrecision(10)) : num(row.rate) * x
     }
-    return { ...row, amount, mainAmount, rate }
+    return onAccounts({ ...row, amount, mainAmount, rate })
   }
   const convert = (tbl: SyncedTable, row: Row): Row => {
-    if (tbl === 'transactions') return row.kind === 'save' || row.kind === 'release' ? inMain(row) : withValue(row)
-    if (tbl === 'recurring') return row.kind === 'save' ? inMain(row) : withValue(row)
+    if (tbl === 'transactions') return row.kind === 'save' || row.kind === 'release' ? inMain(row) : withValue(row, { from: accountCurrency(row.accountId), to: accountCurrency(row.toAccountId) })
+    if (tbl === 'recurring') return row.kind === 'save' ? inMain(row) : withValue(row, { from: accountCurrency(row.accountId) })
     // La cifra da raggiungere di un obiettivo è nella valuta principale.
     if (tbl === 'goals') return gap || !sameScale ? { ...row, target: toMain(num(row.target)) } : row
     return row

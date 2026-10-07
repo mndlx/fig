@@ -84,6 +84,14 @@ export interface Transaction {
   categoryId?: string
   accountId: string
   toAccountId?: string
+  /**
+   * Quanto il movimento ha spostato sul conto `accountId`, in unità minime della valuta di quel conto e col segno
+   * di `amount`. C'è solo quando non si può leggere altrove: il conto non è né nella valuta del movimento (vale
+   * `amount`) né in quella principale (vale `mainAmount`). Vedi sideAmount in money.ts.
+   */
+  accountAmount?: number
+  /** Lo stesso per il conto di arrivo di un giroconto (`toAccountId`). */
+  toAccountAmount?: number
   /** Gomitolo coinvolto: destinazione (save), origine (release) o fonte di pagamento (expense). */
   goalId?: string
   note: string
@@ -113,6 +121,8 @@ export interface Recurring {
   mainAmount: number
   categoryId: string
   accountId: string
+  /** Importo sul conto della serie, quando non è né `amount` né `mainAmount` (vedi Transaction.accountAmount): ogni scadenza lo ripete. */
+  accountAmount?: number
   goalId?: string
   note: string
   frequency: Frequency

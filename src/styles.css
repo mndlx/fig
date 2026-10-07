@@ -3789,3 +3789,11 @@ button.secondary:not(.slim) {
 .sheet.reconcile > .save-btn {
   flex: none;
 }
+
+/* Riga sotto l'importo: una sola, anche con conto e data, e lontana dal pulsante della calcolatrice. */
+.amount-hero .amount-converted {
+  max-width: calc(100% - 88px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

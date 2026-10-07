@@ -1,4 +1,4 @@
-import type { Currency, Transaction } from './db'
+import type { Currency, Recurring, Transaction } from './db'
 import { decimalSep, getLang, locale } from './i18n'
 
 const FALLBACK: Currency = { code: 'EUR', symbol: '€', decimals: 2 }
@@ -157,19 +157,121 @@ export function rateText(rate: number): string {
 }
 
 /**
+ * Cambio "tondo" che lega due cifre: tra quelli che rifanno esattamente la cifra arrotondata, quello con meno
+ * cifre. 1,50 € che valgono 146 L sono a 97 (145,5 arrotondato), non a 97,333; 5.000 L che sono 51,28 € a 97,5,
+ * non a 97,5039. `toward` dice quale delle due cifre si ricava dall'altra: il controvalore dall'importo ('main')
+ * o l'importo dal controvalore ('amount'). Null se una delle due è zero.
+ */
+export function simplestRate(amount: number, from: Currency, mainAmount: number, main: Currency, toward: 'main' | 'amount' = 'main'): number | null {
+  const implied = impliedRate(amount, from, mainAmount, main)
+  if (implied === null) return null
+  const fits = (rate: number) =>
+    toward === 'main' ? convertMinor(Math.abs(amount), from, main, rate) === Math.abs(mainAmount) : convertMinor(Math.abs(mainAmount), main, from, 1 / rate) === Math.abs(amount)
+  for (let digits = 1; digits <= 10; digits++) {
+    const rate = Number(implied.toPrecision(digits))
+    if (rate > 0 && fits(rate)) return rate
+  }
+  return implied
+}
+
+/** Il conto di partenza di un movimento, o quello di arrivo di un giroconto. */
+export type Side = 'from' | 'to'
+
+type Sided = Pick<Transaction, 'amount' | 'currency' | 'mainAmount' | 'accountAmount' | 'toAccountAmount'>
+
+/**
+ * Un movimento ha un solo importo, nella sua valuta, ma tocca conti che possono essere in un'altra. Quanto sposta
+ * su un conto, nella valuta di quel conto, si legge così:
+ * - conto nella valuta del movimento: l'importo;
+ * - conto nella valuta principale: il controvalore;
+ * - né l'una né l'altra: va salvato a parte (accountAmount / toAccountAmount). Qui dice se serve.
+ */
+export function sideNeedsOwn(txCurrency: string, accountCurrency: string, mainCode: string): boolean {
+  return accountCurrency !== txCurrency && accountCurrency !== mainCode
+}
+
+/**
+ * Importo che il movimento sposta su un conto, nella valuta del conto (col segno di `amount`). Null se non lo si sa:
+ * il conto non è né nella valuta del movimento né nella principale e l'importo a parte non c'è (movimenti scritti
+ * prima che esistesse).
+ */
+export function sideAmount(tx: Sided, side: Side, accountCurrency: string, mainCode: string): number | null {
+  if (accountCurrency === tx.currency) return tx.amount
+  if (accountCurrency === mainCode) return tx.mainAmount
+  const own = side === 'from' ? tx.accountAmount : tx.toAccountAmount
+  return typeof own === 'number' && Number.isFinite(own) ? own : null
+}
+
+/**
+ * Mette (numero) o toglie (null) gli importi sui conti, senza lasciare chiavi vuote: una riga uguale deve restare
+ * uguale. Undefined lascia quello che c'è: di quel conto non si sa la valuta, quindi non si sa se la cifra serve.
+ */
+function withSides<T extends { accountAmount?: number; toAccountAmount?: number }>(row: T, from: number | null | undefined, to: number | null | undefined): T {
+  const next = { ...row }
+  if (typeof from === 'number') next.accountAmount = from
+  else if (from === null) delete next.accountAmount
+  if (typeof to === 'number') next.toAccountAmount = to
+  else if (to === null) delete next.toAccountAmount
+  return next
+}
+
+/**
  * Un movimento dopo il cambio della valuta principale (`x` = quante unità della nuova vale 1 unità della vecchia).
  * Importo e valuta restano quelli scritti, per ogni tipo di movimento: cambiano solo controvalore e cambio.
- * Così tornando alla valuta di prima si ritrovano le cifre esatte, senza gli arrotondamenti di due conversioni.
+ * Così tornando alla valuta di prima si ritrovano le cifre esatte, senza gli arrotondamenti di due conversioni:
+ * importo, controvalore e importi sui conti dei movimenti che toccano un conto in quella valuta tornano identici.
+ * Il cambio no, non sempre: all'andata diventa 1 (o cambio × x) e al ritorno si ricava dalle cifre, quindi può
+ * differire da quello scritto nelle ultime cifre (97,4 al posto di 97,35), pur rifacendo lo stesso controvalore.
+ * Un movimento in una terza valuta che non tocca conti nella valuta di ritorno segue il cambio dato, come sempre.
  * - Già nella nuova valuta principale: il controvalore è l'importo stesso.
  * - Gli altri: cambio del movimento (quello vero, vedi soundRate) per `x`, col segno tenuto a parte come
  *   quando il movimento viene scritto.
  * Messi da parte e ripresi restano quindi scritti nella valuta di prima: chi li mostra come cifra della valuta
  * principale deve leggerne il controvalore (lo fa il foglio "+", che salvando li riscrive in quella nuova).
+ *
+ * `sides` dice in che valuta sono i conti toccati dal movimento. Quello che è passato su ogni conto non deve
+ * cambiare, ma dove sta scritto sì: prima del cambio poteva essere il controvalore (conto nella vecchia valuta
+ * principale), dopo va salvato a parte; e viceversa un conto nella nuova valuta principale lo trova nel
+ * controvalore, che quindi diventa esattamente quella cifra (non importo × cambio). Si spostano solo cifre vere:
+ * dove l'importo sul conto non si sa (movimenti scritti prima che esistesse) resta da stimare, non si inventa.
+ *
+ * Conseguenza voluta: un gomitolo riempito e poi speso da un conto in un'altra valuta può restare con qualche
+ * centesimo dopo il cambio (il messo da parte passa col cambio dato, la spesa vale quello che è uscito dal conto).
  */
-export function rebaseTransaction(tx: Transaction, from: Currency, oldMain: Currency, target: Currency, x: number): Transaction {
-  if (tx.currency === target.code) return { ...tx, rate: 1, mainAmount: tx.amount }
+export function rebaseTransaction<T extends Sided & Pick<Transaction, 'rate'>>(tx: T, from: Currency, oldMain: Currency, target: Currency, x: number, sides: { from?: string; to?: string } = {}): T {
+  // Quanto passava su ogni conto, letto prima di toccare il controvalore.
+  const was = {
+    from: sides.from ? sideAmount(tx, 'from', sides.from, oldMain.code) : null,
+    to: sides.to ? sideAmount(tx, 'to', sides.to, oldMain.code) : null,
+  }
+  // Dopo: a parte solo se il conto non è né nella valuta del movimento né nella nuova principale. Di un conto che
+  // non si conosce (cancellato altrove, per esempio) non si tocca niente.
+  const kept = (side: Side) => (sides[side] ? (sideNeedsOwn(tx.currency, sides[side], target.code) ? was[side] : null) : undefined)
+  if (tx.currency === target.code) return withSides({ ...tx, rate: 1, mainAmount: tx.amount }, kept('from'), kept('to'))
+  // Un conto nella nuova valuta principale: il controvalore è quello che è passato lì.
+  const inTarget = sides.from === target.code && was.from !== null ? was.from : sides.to === target.code && was.to !== null ? was.to : null
+  if (inTarget !== null && inTarget !== 0 && tx.amount !== 0) {
+    const mainAmount = Math.sign(tx.amount) * Math.abs(inTarget)
+    // Il cambio: quello che verrebbe dal conto normale, se rifà proprio quella cifra; altrimenti il più semplice che la rifà.
+    const carried = soundRate(tx, from, oldMain) * x
+    const rate = carried > 0 && convertMinor(Math.abs(tx.amount), from, target, carried) === Math.abs(mainAmount) ? carried : (simplestRate(tx.amount, from, mainAmount, target) ?? carried)
+    return withSides({ ...tx, rate, mainAmount }, kept('from'), kept('to'))
+  }
   const rate = soundRate(tx, from, oldMain) * x
-  return { ...tx, rate, mainAmount: Math.sign(tx.amount) * convertMinor(Math.abs(tx.amount), from, target, rate) }
+  return withSides({ ...tx, rate, mainAmount: Math.sign(tx.amount) * convertMinor(Math.abs(tx.amount), from, target, rate) }, kept('from'), kept('to'))
+}
+
+/**
+ * Una ricorrenza dopo il cambio della valuta principale. Come i movimenti; gli accantonamenti automatici invece
+ * sono cifre nella valuta principale e passano alla nuova (`x` come sopra).
+ */
+export function rebaseRule(rule: Recurring, from: Currency, oldMain: Currency, target: Currency, x: number, accountCurrency?: string): Recurring {
+  if (rule.kind === 'save' && rule.currency !== target.code) {
+    const value = convertMinor(rule.currency === oldMain.code ? rule.amount : rule.mainAmount, oldMain, target, x)
+    return withSides({ ...rule, currency: target.code, rate: 1, amount: value, mainAmount: value }, null, null)
+  }
+  // Gli accantonamenti non spostano soldi tra conti: niente importi sul conto.
+  return rule.kind === 'save' ? withSides(rebaseTransaction(rule, from, oldMain, target, x), null, null) : rebaseTransaction(rule, from, oldMain, target, x, { from: accountCurrency })
 }
 
 /**
