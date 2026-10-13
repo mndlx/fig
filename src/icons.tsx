@@ -26,9 +26,10 @@ export const IconTree = () => (
 )
 /** Obiettivi: un fico. */
 export const IconFigOutline = () => (
+  // La stessa sagoma del fichetto dell'icona (src/mascot.svg), a tratto come le altre icone.
   <Icon>
-    <path d="M12 6.5c4.2 0 6.6 5 6.2 9.4C17.8 19.6 15 21 12 21s-5.8-1.4-6.2-5.1C5.4 11.5 7.8 6.5 12 6.5z" />
-    <path d="M12 6.5 12.6 3.5M12.6 4.2c1.4-1.5 3.6-1.6 4.7-.6-1.3 1.4-3.3 1.6-4.7.6z" />
+    <path d="M10.6 6.3C10.1 9.4 4 11.1 4 16.2c0 3.4 3.4 5.6 8 5.6s8-2.2 8-5.6c0-5.1-6.1-6.8-6.6-9.9z" />
+    <path d="M11.9 6.2 11.5 3.1M12.6 5c.9-2 3.6-2.7 5.7-1.6-1 2-3.6 2.6-5.7 1.6z" />
   </Icon>
 )
 export const IconPlus = () => (
@@ -67,14 +68,13 @@ export const IconDown = () => (
     <path d="M6 9l6 6 6-6" />
   </Icon>
 )
-/** Il fichetto del marchio in piccolo: la sagoma della mascotte (mascot.svg) senza il viso, che a queste dimensioni non si leggerebbe. */
-export const IconFig = () => (
-  <svg viewBox="63 62 386 386" width="20" height="20" aria-hidden="true">
-    <path d="M266 124 C282 80 340 64 382 88 C362 130 308 144 266 124 Z" fill="var(--leaf)" />
-    <path d="M229 140 C220 200 104 232 104 330 C104 396 168 438 256 438 C344 438 408 396 408 330 C408 232 292 200 283 140 Z" fill="currentColor" />
-    <path d="M228 146 C230 126 229 108 225 94 C222 80 231 72 245 72 C259 72 268 80 269 93 C270 110 276 128 284 146 Q256 156 228 146 Z" fill="currentColor" />
-  </svg>
-)
+/** Il disegno ritagliato sul fichetto, senza il margine che serve all'icona: per quando è piccolo, accanto al nome. */
+const mascotTight = mascot.replace('viewBox="0 0 512 512"', 'viewBox="61 56 390 390"')
 
-/** Il fichetto col suo viso, lo stesso dell'icona e della schermata d'avvio, per le schermate dove c'è spazio. */
-export const Mascot = () => <span className="mascot" aria-hidden="true" dangerouslySetInnerHTML={{ __html: mascot }} />
+/**
+ * Il fichetto col suo viso, lo stesso dell'icona dell'app e della schermata d'avvio. Grande nelle schermate dove c'è
+ * spazio; `small` accanto al nome "fig", in alto: così il logo dentro l'app e l'icona sul telefono sono la stessa cosa.
+ */
+export const Mascot = ({ small = false }: { small?: boolean }) => (
+  <span className={small ? 'mascot small' : 'mascot'} aria-hidden="true" dangerouslySetInnerHTML={{ __html: small ? mascotTight : mascot }} />
+)

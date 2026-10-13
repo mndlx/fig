@@ -4496,3 +4496,16 @@ button.ev-head {
   font-size: 11px;
   color: var(--muted);
 }
+
+/* Il fichetto piccolo accanto al nome "fig": lo stesso dell'icona dell'app, col suo viso. */
+.mascot.small {
+  flex: none;
+  width: 30px;
+  height: 30px;
+}
+@media (max-width: 359px) {
+  .mascot.small {
+    width: 26px;
+    height: 26px;
+  }
+}

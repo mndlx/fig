@@ -9,7 +9,7 @@ import { db, type Currency, type Goal, type Transaction } from './db'
 import { undoStartingBalances } from './firstRun'
 import { GoalDetail, GoalForm, Goals, type GoalTemplate } from './Goals'
 import { builtinName, dateFmt, getLang, readLangSetting, resolveLang, setLang, t, writeLangSetting, type Key, type LangSetting } from './i18n'
-import { IconBranch, IconFig, IconFigOutline, IconGear, IconLeft, IconPlus, IconRight, IconTree } from './icons'
+import { IconBranch, IconFigOutline, IconGear, IconLeft, IconPlus, IconRight, IconTree, Mascot } from './icons'
 import { formatMoney, moneyParts } from './money'
 import { SetupCard } from './Onboarding'
 import { hasOpening, migrateInitialBalances } from './opening'
@@ -482,7 +482,7 @@ export default function App({ offline = false, local = false, onChooseAdoption }
     <div className="app">
       <header className="bar">
         <span className="wordmark">
-          <IconFig />
+          <Mascot small />
           fig
         </span>
         {/* Obiettivi e andamento non riguardano un mese: lì il selettore del mese non c'è. */}

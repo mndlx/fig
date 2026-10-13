@@ -35,7 +35,13 @@ a {
   font: 500 28px/1 Georgia, serif;
 }
 .brand a {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   text-decoration: none;
+}
+.brand img {
+  display: block;
 }
 .lang {
   margin: 8px 0 8px;

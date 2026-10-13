@@ -6,7 +6,7 @@ import { authEnabled, currentUser, isLocalOnly, localModeAllowed } from './auth'
 import { exportJson } from './backup'
 import { db } from './db'
 import { dateFmt, decimalSep, t } from './i18n'
-import { IconFig } from './icons'
+import { Mascot } from './icons'
 import { fetchRate, formatMoney } from './money'
 import { cancelAdoption, getSyncStatus, previewAdoption, resolveAdoption, syncNow } from './sync'
 
@@ -242,7 +242,7 @@ export function AdoptionChoice({ onClose }: { onClose: () => void }) {
   return (
     <main className="adopt" aria-busy={!!busy}>
       <span className="wordmark" aria-hidden="true">
-        <IconFig />
+        <Mascot small />
         fig
       </span>
       <h1 ref={titleRef} tabIndex={-1}>
