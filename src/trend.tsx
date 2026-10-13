@@ -1,6 +1,6 @@
 import type { Category, Currency, Transaction } from './db'
-import { builtinName, dateFmt, locale, t, type Key } from './i18n'
-import { formatMoney, moneyParts } from './money'
+import { builtinName, dateFmt, t, type Key } from './i18n'
+import { formatMoney, moneyParts, numberFmt } from './money'
 import { axisScale } from './stats'
 
 /**
@@ -22,7 +22,7 @@ export function trendFormat(mainCurrency: Currency, categories: Category[]) {
     const p = moneyParts(v, mainCurrency, { sign })
     return p.sign + p.whole + p.fraction
   }
-  const short = (x: number, digits: number) => x.toLocaleString(locale(), { maximumFractionDigits: digits, useGrouping: 'always' })
+  const short = (x: number, digits: number) => numberFmt(0, digits).format(x)
   /** Un numero con al più una cifra decimale ("1,5"). */
   const num = (v: number) => short(v, 1)
   /** Cifra corta per le etichette: "200 mila", "1,2 mln". Le cifre esatte stanno nel testo accanto. */

@@ -101,11 +101,12 @@
         // se un file dell'app non si carica lo si dice subito, se ci mette molto dopo un po'.
         // La lingua: quella scelta nelle impostazioni, altrimenti quella del dispositivo (stessa regola di src/i18n.ts).
         var italian = false
+        var stored = null
         try {
-          var stored = localStorage.getItem('fig-lang')
-          var list = stored === 'it' || stored === 'en' ? [stored] : navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || '']
-          for (var j = 0; j < list.length; j++) if (/^it/i.test(list[j])) italian = true
+          stored = localStorage.getItem('fig-lang')
         } catch (e) {}
+        var list = stored === 'it' || stored === 'en' ? [stored] : navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || '']
+        for (var j = 0; j < list.length; j++) if (/^it/i.test(list[j])) italian = true
         function say(it, en) {
           var note = document.getElementById('boot-note')
           if (note && !root.dataset.app) note.textContent = italian ? it : en

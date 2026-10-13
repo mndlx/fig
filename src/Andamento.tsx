@@ -78,6 +78,8 @@ export function Andamento({ data, modeSwitch, onOpen, onOpenMonth, onAddExpense,
   const spendRef = useRef<HTMLElement>(null)
   // La riga da portare a schermo dopo che un suggerimento l'ha aperta.
   const reveal = useRef<string | null>(null)
+  // Ogni tocco di un suggerimento è un cambiamento suo: così la riga va a schermo sempre, e solo allora.
+  const [revealTick, setRevealTick] = useState(0)
 
   const now = Date.now()
   const today = dayStart(now)
@@ -165,6 +167,7 @@ export function Andamento({ data, modeSwitch, onOpen, onOpenMonth, onAddExpense,
     setAllRows(true)
     setAllTx(false)
     reveal.current = key
+    setRevealTick((n) => n + 1)
   }
   const calm = () => (window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth')
   const rowId = (key: string) => `spend-${key.replace(/[^a-z0-9]+/gi, '-')}`
@@ -177,7 +180,7 @@ export function Andamento({ data, modeSwitch, onOpen, onOpenMonth, onAddExpense,
     if (!row) return
     row.scrollIntoView({ block: 'start', behavior: calm() })
     row.querySelector('button')?.focus({ preventScroll: true })
-  })
+  }, [revealTick])
 
   const title = n === 0 ? t('trend.titleNone') : tn('trend.title', n)
   /** Il portafoglio dei contanti "cieco" su cui segnare una spesa, se c'è ed è ancora in uso. */
@@ -243,10 +246,8 @@ export function Andamento({ data, modeSwitch, onOpen, onOpenMonth, onAddExpense,
       <div className="readout" aria-live="polite">
         <span className="readout-main">{monthText(picked, pickedFlow)}</span>
         <span className="readout-sub">
-          <span>
-            {t('trend.keep.flows', { in: money(pickedFlow.in), out: money(pickedFlow.out) })}
-            {pickedFlow.adjustIn > 0 && ` · ${t('trend.keep.flowsAdjust', { amount: money(pickedFlow.adjustIn, true) })}`}
-          </span>
+          <span>{t('trend.keep.flows', { in: money(pickedFlow.in), out: money(pickedFlow.out) })}</span>
+          {pickedFlow.adjustIn > 0 && <span>{t('trend.keep.flowsAdjust', { amount: money(pickedFlow.adjustIn, true) })}</span>}
           <button className="link-btn" onClick={() => onOpenMonth(picked)}>
             {t('trend.keep.open', { month: monthShort(picked) })}
           </button>
@@ -407,6 +408,42 @@ export function Andamento({ data, modeSwitch, onOpen, onOpenMonth, onAddExpense,
   }, [openRow, m.spend, m.ctx, spending.opaque.separate])
   const compared = rows.some((row) => row.deltaPct !== null)
 
+  const shownRows = allRows ? rows : rows.slice(0, ROWS)
+  // Le spese senza dettaglio stanno al loro posto tra le altre righe, per peso: "dalla più pesante" vale per tutte
+  // (in fondo a quelle a schermo, se sono tutte più pesanti).
+  const opaquePos = spending.opaque.separate ? shownRows.filter((row) => row.total > spending.opaque.total).length : 0
+  const renderRow = (row: SpendRow) => {
+    const key = rowKey(row)
+    const open = openRow === key
+    const cat = fmt.category(by === 'category' ? row.id : (row.categoryId ?? ''))
+    const color = cat?.color ?? 'var(--muted)'
+    return (
+      <div key={key} className={`legend-item${open ? ' open' : ''}`} id={rowId(key)}>
+        <button className="legend-row spend-row" aria-expanded={open} aria-controls={open ? `${rowId(key)}-detail` : undefined} onClick={() => toggle(key)}>
+          <span className="row-icon" style={{ '--c': color } as CSSProperties}>
+            <CategoryIcon name={cat?.icon} size={16} />
+          </span>
+          <span className="legend-name">
+            {by === 'category' ? catName(row.id || undefined) : row.name}
+            <span className="legend-share">{shareOf(row.share)}</span>
+            {row.deltaPct !== null && (
+              <span className={`delta ${row.deltaPct > 0 ? 'up' : 'down'}`}>
+                {row.deltaPct > 0 ? '▲' : '▼'} {Math.abs(row.deltaPct)}%
+              </span>
+            )}
+            {row.deltaPct === null && row.isNew && <span className="delta new">{t('weave.new')}</span>}
+            <span className="spend-sub">{tn('trend.spend.times', row.count, { amount: money(row.median) })}</span>
+          </span>
+          <span className="legend-value">{money(row.total)}</span>
+          <span className="legend-bar">
+            <span style={{ width: `${(row.total / topTotal) * 100}%`, background: color }} />
+          </span>
+        </button>
+        {open && detail(key, by, row.byMonth, row.lumpy, color)}
+      </div>
+    )
+  }
+
   const spendCard = n > 0 && (
     <section className="card spend" ref={spendRef}>
       <div className="card-head stack">
@@ -438,6 +475,7 @@ export function Andamento({ data, modeSwitch, onOpen, onOpenMonth, onAddExpense,
           {compared && <p className="keep-sub muted">{t('trend.spend.vsPrev', { n })}</p>}
           <p className="chart-note top">{t('trend.spend.note')}</p>
           <div className="legend">
+            {shownRows.slice(0, opaquePos).map(renderRow)}
             {spending.opaque.separate && (
               <div className={`legend-item${openRow === 'opaque' ? ' open' : ''}`} id={rowId('opaque')}>
                 <button className="legend-row spend-row" aria-expanded={openRow === 'opaque'} aria-controls={openRow === 'opaque' ? `${rowId('opaque')}-detail` : undefined} onClick={() => toggle('opaque')}>
@@ -457,37 +495,7 @@ export function Andamento({ data, modeSwitch, onOpen, onOpenMonth, onAddExpense,
                 {openRow === 'opaque' && detail('opaque', 'opaque', spending.opaque.byMonth, null, 'var(--muted)')}
               </div>
             )}
-            {(allRows ? rows : rows.slice(0, ROWS)).map((row) => {
-              const key = rowKey(row)
-              const open = openRow === key
-              const cat = fmt.category(by === 'category' ? row.id : (row.categoryId ?? ''))
-              const color = cat?.color ?? 'var(--muted)'
-              return (
-                <div key={key} className={`legend-item${open ? ' open' : ''}`} id={rowId(key)}>
-                  <button className="legend-row spend-row" aria-expanded={open} aria-controls={open ? `${rowId(key)}-detail` : undefined} onClick={() => toggle(key)}>
-                    <span className="row-icon" style={{ '--c': color } as CSSProperties}>
-                      <CategoryIcon name={cat?.icon} size={16} />
-                    </span>
-                    <span className="legend-name">
-                      {by === 'category' ? catName(row.id || undefined) : row.name}
-                      <span className="legend-share">{shareOf(row.share)}</span>
-                      {row.deltaPct !== null && (
-                        <span className={`delta ${row.deltaPct > 0 ? 'up' : 'down'}`}>
-                          {row.deltaPct > 0 ? '▲' : '▼'} {Math.abs(row.deltaPct)}%
-                        </span>
-                      )}
-                      {row.deltaPct === null && row.isNew && <span className="delta new">{t('weave.new')}</span>}
-                      <span className="spend-sub">{tn('trend.spend.times', row.count, { amount: money(row.median) })}</span>
-                    </span>
-                    <span className="legend-value">{money(row.total)}</span>
-                    <span className="legend-bar">
-                      <span style={{ width: `${(row.total / topTotal) * 100}%`, background: color }} />
-                    </span>
-                  </button>
-                  {open && detail(key, by, row.byMonth, row.lumpy, color)}
-                </div>
-              )
-            })}
+            {shownRows.slice(opaquePos).map(renderRow)}
           </div>
           {rows.length > ROWS && (
             <button className="link-btn center" onClick={() => setAllRows((v) => !v)}>

@@ -30,6 +30,35 @@ export function useWidth<T extends HTMLElement>(fallback: number): [RefObject<T 
 
 const r1 = (n: number) => Math.round(n * 10) / 10
 
+type Anchor = 'start' | 'middle' | 'end'
+/**
+ * Le scritte dei mesi che ci stanno davvero sotto un grafico: quella che comincerebbe prima che finisca la precedente
+ * si salta (la prima porta l'anno ed è più larga delle altre). L'anno si scrive rispetto all'ultima scritta messa,
+ * così se salta un'etichetta con l'anno lo porta la successiva. La larghezza è stimata per eccesso, a 11 px.
+ */
+function fitMonthLabels(
+  items: { month: number; x: number }[],
+  text: (month: number, withYear: boolean) => string,
+  anchorOf: (x: number, withYear: boolean) => Anchor,
+): Map<number, { text: string; anchor: Anchor }> {
+  const out = new Map<number, { text: string; anchor: Anchor }>()
+  let end = -Infinity
+  let lastYear: number | null = null
+  for (const item of items) {
+    const year = new Date(item.month).getFullYear()
+    const withYear = year !== lastYear
+    const label = text(item.month, withYear)
+    const anchor = anchorOf(item.x, withYear)
+    const w = label.length * 6.2
+    const x0 = anchor === 'start' ? item.x : anchor === 'end' ? item.x - w : item.x - w / 2
+    if (x0 < end + 2) continue
+    out.set(item.month, { text: label, anchor })
+    end = x0 + w
+    lastYear = year
+  }
+  return out
+}
+
 interface BalanceLineProps {
   points: DayPoint[]
   /** I segni della linea in ordine d'importanza (swingMarks): pieni il massimo, il minimo e i tratti da guardare, vuoti gli altri. */
@@ -54,6 +83,8 @@ interface BalanceLineProps {
   amount: (value: number) => string
   /** Nome corto del mese; con l'anno quando serve ("gen ’26"). */
   month: (day: number, withYear: boolean) => string
+  /** Giorno e mese corti ("3 ott"): l'inizio della linea, quando sotto non c'è nessun mese scritto. */
+  day: (day: number) => string
 }
 
 /** Larghezza a occhio di una scritta a 12 px, per sapere dove non mettere altro. */
@@ -66,7 +97,7 @@ const textWidth = (text: string) => text.length * 6.7
  * Ordine del disegno, da sotto a sopra: griglia e assi, fascia del tratto scelto, linea, tratto scelto, riga del giorno
  * scelto, segni vuoti, segni pieni e cifre, gradini, arrivo del tratto scelto, oggi, punto del giorno scelto.
  */
-export function BalanceLine({ points, marks, swings, swing, stops, runningFrom, selected, onSelect, label, valueText, todayLabel, axis, amount, month }: BalanceLineProps) {
+export function BalanceLine({ points, marks, swings, swing, stops, runningFrom, selected, onSelect, label, valueText, todayLabel, axis, amount, month, day }: BalanceLineProps) {
   const [ref, width] = useWidth<HTMLDivElement>(311)
   const height = 212
   const n = points.length
@@ -118,7 +149,8 @@ export function BalanceLine({ points, marks, swings, swing, stops, runningFrom, 
         return { mark, text, side, ty, box: { x0: x0 - 6, x1: x0 + w + 6, y0: ty - 16, y1: ty + 8 } }
       })
     const inFigure = (px: number, py: number) => figures.some((f) => px >= f.box.x0 && px <= f.box.x1 && py >= f.box.y0 && py <= f.box.y1)
-    return { marks: placed.filter((mark) => mark.filled || !inFigure(mark.x, mark.y)), figures, inFigure }
+    const onFigure = (x0: number, x1: number, y0: number, y1: number) => figures.some((f) => x0 <= f.box.x1 && x1 >= f.box.x0 && y0 <= f.box.y1 && y1 >= f.box.y0)
+    return { marks: placed.filter((mark) => mark.filled || !inFigure(mark.x, mark.y)), figures, onFigure }
     // `amount` e `anchor` cambiano a ogni disegno ma dicono sempre la stessa cosa per gli stessi dati.
   }, [marks, swings.length, geo, points, plotW, width])
 
@@ -128,8 +160,13 @@ export function BalanceLine({ points, marks, swings, swing, stops, runningFrom, 
     let peak = geo.y(points[last].value)
     for (let i = last; i >= 0 && x - geo.x(i) <= 34; i--) peak = Math.min(peak, geo.y(points[i].value))
     const y = Math.max(10, peak - 9)
-    return { x, y, free: !drawn.inFigure(x - 14, y - 4) && !drawn.inFigure(x - 30, y - 4) }
-  }, [geo, points, last, drawn])
+    return { x, y, free: !drawn.onFigure(x - todayLabel.length * 6.2, x, y - 10, y + 2) }
+  }, [geo, points, last, drawn, todayLabel])
+  const monthTexts = fitMonthLabels(
+    geo.months.filter((mo) => mo.withYear !== undefined && mo.x <= pad.left + plotW - 12).map((mo) => ({ month: mo.day, x: mo.x })),
+    month,
+    (x) => (x < pad.left + 16 ? 'start' : 'middle'),
+  )
 
   const chosen = swing >= 0 && swing < swings.length ? swings[swing] : null
   const arrival = chosen ? (marks.find((mark) => mark.index === chosen.toIndex) ?? null) : null
@@ -140,6 +177,9 @@ export function BalanceLine({ points, marks, swings, swing, stops, runningFrom, 
     // Il dito copre più giorni: si ferma sull'arrivo o sul gradino più vicino, se è a portata. Il mouse è più preciso.
     onSelect(snapToStop(stops, index, touchReach(n, plotW, swings.length, event.pointerType === 'mouse' ? 1 : 2.5)))
   }
+  // Col dito il browser manda pointerdown prima di sapere se si sta scorrendo la pagina: il giorno si sceglie solo
+  // quando il gesto è del grafico (un tocco, o uno scorrimento in orizzontale).
+  const touch = useRef<{ x: number; y: number; scrub: boolean } | null>(null)
   const onKey = (event: KeyboardEvent<HTMLDivElement>) => {
     const at = selected ?? last
     const one = event.shiftKey ? 7 : 1
@@ -214,13 +254,19 @@ export function BalanceLine({ points, marks, swings, swing, stops, runningFrom, 
         {geo.months.map((mo) => (
           <g key={mo.day}>
             <line className="grid" x1={r1(mo.x)} x2={r1(mo.x)} y1={height - pad.bottom} y2={height - pad.bottom + 4} />
-            {mo.withYear !== undefined && mo.x <= pad.left + plotW - 12 && (
-              <text className="tick" x={r1(mo.x)} y={height - 5} textAnchor={mo.x < pad.left + 16 ? 'start' : 'middle'}>
-                {month(mo.day, mo.withYear)}
+            {monthTexts.has(mo.day) && (
+              <text className="tick" x={r1(mo.x)} y={height - 5} textAnchor={monthTexts.get(mo.day)!.anchor}>
+                {monthTexts.get(mo.day)!.text}
               </text>
             )}
           </g>
         ))}
+        {monthTexts.size === 0 && (
+          // Meno di un mese di storia, senza un primo del mese in mezzo: sotto la linea almeno il giorno da cui parte.
+          <text className="tick" x={r1(geo.x(0))} y={height - 5} textAnchor={n > 1 ? 'start' : 'middle'}>
+            {day(points[0].day)}
+          </text>
+        )}
         {chosen && (
           // Una fascia dietro il tratto scelto: una salita di un giorno è larga meno di un pixel, così si trova lo stesso.
           <rect
@@ -271,9 +317,25 @@ export function BalanceLine({ points, marks, swings, swing, stops, runningFrom, 
           height={height - pad.bottom}
           onPointerDown={(event) => {
             event.currentTarget.setPointerCapture?.(event.pointerId)
+            if (event.pointerType === 'mouse') pick(event)
+            else touch.current = { x: event.clientX, y: event.clientY, scrub: false }
+          }}
+          onPointerMove={(event) => {
+            if (event.pointerType === 'mouse') return pick(event)
+            const start = touch.current
+            if (!start || event.buttons === 0) return
+            const dx = Math.abs(event.clientX - start.x)
+            if (!start.scrub && (dx < 6 || dx <= Math.abs(event.clientY - start.y))) return
+            start.scrub = true
             pick(event)
           }}
-          onPointerMove={(event) => (event.pointerType === 'mouse' || event.buttons > 0) && pick(event)}
+          onPointerUp={(event) => {
+            if (touch.current && !touch.current.scrub) pick(event)
+            touch.current = null
+          }}
+          onPointerCancel={() => {
+            touch.current = null
+          }}
         />
       </svg>
     </div>
@@ -308,16 +370,27 @@ export function NetBars({ bars, selected, onSelect, label, aria, amount, month }
   const barW = Math.min(24, Math.max(3, pitch - 6))
   const full = bars.filter((b) => !b.running)
   // La scala la fanno i mesi finiti: quello in corso (magari con l'affitto pagato e lo stipendio non ancora arrivato)
-  // non deve schiacciare gli altri. Se esce dalla scala si ferma al bordo, tratteggiato.
-  const nets = (full.length > 0 ? full : bars).map((b) => b.net)
-  const lo = Math.min(0, ...nets)
-  const hi = Math.max(0, ...nets)
+  // non deve schiacciare gli altri. Se i mesi finiti sono tutti a zero la fa lui, altrimenti non si vedrebbe niente.
+  const nets = (full.some((b) => b.net !== 0) ? full : bars).map((b) => b.net)
+  const lo0 = Math.min(0, ...nets)
+  const hi0 = Math.max(0, ...nets)
+  // Il mese in corso fuori scala deve restare una colonna: gli si lascia un 15% della scala dalla sua parte, non di più;
+  // oltre si ferma al bordo, tratteggiato.
+  const run = bars.find((b) => b.running)
+  const room = 0.15 * (hi0 - lo0 || 1)
+  const lo = run && run.net < lo0 ? Math.max(run.net, lo0 - room) : lo0
+  const hi = run && run.net > hi0 ? Math.min(run.net, hi0 + room) : hi0
   const span = hi - lo || 1
   const y = (v: number) => pad.top + ((hi - Math.min(hi, Math.max(lo, v))) / span) * plotH
   const zero = y(0)
   const best = full.reduce<NetBar | null>((b, x) => (x.net > 0 && (!b || x.net > b.net) ? x : b), null)
   const worst = full.reduce<NetBar | null>((b, x) => (x.net < 0 && (!b || x.net < b.net) ? x : b), null)
-  const labels = new Map(monthLabels(bars.map((b) => b.month), pitch, 24, 42).map((l) => [l.month, l.withYear]))
+  const regular = new Set(monthLabels(bars.map((b) => b.month), pitch, 24, 42).map((l) => l.month))
+  const labels = fitMonthLabels(
+    bars.map((b, i) => ({ month: b.month, x: pitch * (i + 0.5) })).filter((b) => regular.has(b.month)),
+    month,
+    (x, withYear) => (withYear && x < 22 ? 'start' : withYear && x > width - 22 ? 'end' : 'middle'),
+  )
 
   return (
     <div ref={ref} className="chart net-bars" role="group" aria-label={label}>
@@ -337,7 +410,7 @@ export function NetBars({ bars, selected, onSelect, label, aria, amount, month }
               ? `M${r1(x0)} ${r1(zero)}V${r1(top + r)}Q${r1(x0)} ${r1(top)} ${r1(x0 + r)} ${r1(top)}H${r1(x0 + barW - r)}Q${r1(x0 + barW)} ${r1(top)} ${r1(x0 + barW)} ${r1(top + r)}V${r1(zero)}Z`
               : `M${r1(x0)} ${r1(zero)}V${r1(top + h - r)}Q${r1(x0)} ${r1(top + h)} ${r1(x0 + r)} ${r1(top + h)}H${r1(x0 + barW - r)}Q${r1(x0 + barW)} ${r1(top + h)} ${r1(x0 + barW)} ${r1(top + h - r)}V${r1(zero)}Z`
           const labelled = bar === best || bar === worst
-          const withYear = labels.get(bar.month)
+          const monthText = labels.get(bar.month)
           return (
             <g key={bar.month} className={`nb${bar.running ? ' running' : bar.net < 0 ? ' down' : ' up'}${cut ? ' cut' : ''}${selected !== null && selected !== bar.month ? ' dim' : ''}`}>
               {bar.net !== 0 && <path d={d} aria-hidden="true" />}
@@ -346,9 +419,9 @@ export function NetBars({ bars, selected, onSelect, label, aria, amount, month }
                   {amount(bar.net)}
                 </text>
               )}
-              {withYear !== undefined && (
-                <text className="tick" x={r1(cx)} y={height - 5} textAnchor={withYear && cx < 22 ? 'start' : withYear && cx > width - 22 ? 'end' : 'middle'} aria-hidden="true">
-                  {month(bar.month, withYear)}
+              {monthText && (
+                <text className="tick" x={r1(cx)} y={height - 5} textAnchor={monthText.anchor} aria-hidden="true">
+                  {monthText.text}
                 </text>
               )}
               <rect

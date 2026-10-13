@@ -295,7 +295,8 @@ export function findSwings(points: DayPoint[], opts: { theta?: number; usual?: {
     const a = nodes[k - 1]
     const b = nodes[k]
     const diff = points[b].value - points[a].value
-    // Dopo l'ultimo estremo non è più successo niente: nessun tratto, quei giorni restano all'ultimo.
+    // Dopo l'ultimo estremo non è più successo niente: nessun tratto, quei giorni restano all'ultimo, che così
+    // è ancora in corso (la mattina, prima del primo movimento della giornata, la discesa del mese non è "finita ieri").
     if (diff === 0) continue
     const dir = diff > 0 ? 'up' : 'down'
     const amount = Math.abs(diff)
@@ -307,7 +308,7 @@ export function findSwings(points: DayPoint[], opts: { theta?: number; usual?: {
       days.sort((x, y) => Math.abs(points[y].delta) - Math.abs(points[x].delta) || x - y)
       steps.push(...days.slice(0, MAX_STEPS).sort((x, y) => x - y))
     }
-    list.push({ id: points[b].day, dir, from: points[a], to: points[b], fromIndex: a, toIndex: b, amount, days: b - a, open: b === n - 1 ? 'running' : a === 0 ? 'start' : null, versus: null, notable: false, steps })
+    list.push({ id: points[b].day, dir, from: points[a], to: points[b], fromIndex: a, toIndex: b, amount, days: b - a, open: b === n - 1 || (nodes[k + 1] === n - 1 && points[b].value === points[n - 1].value) ? 'running' : a === 0 ? 'start' : null, versus: null, notable: false, steps })
   }
   const whole = (dir: 'up' | 'down') => list.filter((s) => s.dir === dir && s.open === null)
   const usualUp = opts.usual ? opts.usual.up : usualSwing(whole('up').map((s) => s.amount))
@@ -365,11 +366,12 @@ export function snapToStop(stops: number[], index: number, reach: number): numbe
 
 /**
  * Quanti giorni di portata ha il dito: quelli che stanno in `px` pixel (due e mezzo per un dito, uno per il mouse),
- * ma mai più di un terzo di un tratto medio, e almeno uno. Zero se non ci sono tratti.
+ * ma mai più di un terzo di un tratto medio (almeno uno). Zero se non ci sono tratti, o se un giorno è già più largo
+ * del dito: allora ogni giorno si tocca da sé e non c'è niente da correggere.
  */
 export function touchReach(count: number, plotW: number, swings: number, px = 2.5): number {
   if (count < 2 || swings === 0 || plotW <= 0) return 0
-  return Math.max(1, Math.min(Math.round((px * (count - 1)) / plotW), Math.round((0.3 * (count - 1)) / swings)))
+  return Math.min(Math.round((px * (count - 1)) / plotW), Math.max(1, Math.round((0.3 * (count - 1)) / swings)))
 }
 
 export interface DayMove {
@@ -904,19 +906,31 @@ export function idleStep(transactions: Transaction[], opts: { now: number; base?
   const inWallet = (id: string | undefined) => !!id && opts.wallets.has(id)
   // Messo da parte dentro la finestra e ancora negli obiettivi.
   let saved = 0
+  // Ripreso oggi da soldi che erano da parte da prima della finestra: se lo stesso giorno tornano in un obiettivo
+  // è uno spostamento da un obiettivo all'altro, non soldi messi da parte di nuovo.
+  let early = 0
+  let earlyDay = 0
   const effect = (tx: Transaction) => {
     if (tx.kind === 'save' || tx.kind === 'release') {
       // Gli obiettivi non stanno in nessun conto: quello scritto sul movimento è solo l'ultimo usato.
       if (tx.date < from) return signedMain(tx)
+      const day = dayStart(tx.date)
+      if (day !== earlyDay) {
+        early = 0
+        earlyDay = day
+      }
       // Dentro la finestra quello che si mette da parte si conta a parte, come fatto il primo giorno.
       if (tx.kind === 'save') {
-        saved += tx.mainAmount
-        return 0
+        const again = Math.min(early, tx.mainAmount)
+        early -= again
+        saved += tx.mainAmount - again
+        return -again
       }
       // Riprendere dei soldi restituisce prima quelli messi via nella finestra; il di più era da parte da prima,
       // e torna disponibile quel giorno come un'entrata (balanceSeries passa i movimenti una volta sola, in ordine di data).
       const back = Math.min(saved, tx.mainAmount)
       saved -= back
+      early += tx.mainAmount - back
       return tx.mainAmount - back
     }
     if (tx.kind === 'transfer') return inWallet(tx.toAccountId) === inWallet(tx.accountId) ? 0 : inWallet(tx.toAccountId) ? -tx.mainAmount : tx.mainAmount
@@ -926,8 +940,10 @@ export function idleStep(transactions: Transaction[], opts: { now: number; base?
   const before = Math.min(...series.map((p) => p.value))
   const floor = before - saved
   // La cifra si misura su quello che c'era prima di metterne da parte: metà di quello, meno quanto è già stato spostato.
-  const amount = roundDown2(Math.min(before / 2, before - 0.5 * opts.typicalMonth) - saved)
-  return amount > 0 && amount >= 0.1 * opts.typicalMonth ? { amount, floor, left: floor - amount } : null
+  const target = Math.min(before / 2, before - 0.5 * opts.typicalMonth)
+  const amount = roundDown2(target - saved)
+  // Sotto un decimo di tutta la cifra è il resto di un arrotondamento, non una proposta nuova.
+  return amount > 0 && amount >= 0.1 * Math.max(opts.typicalMonth, target) ? { amount, floor, left: floor - amount } : null
 }
 
 export type Lever =

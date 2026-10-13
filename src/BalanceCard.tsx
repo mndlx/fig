@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BalanceLine } from './charts'
 import type { Transaction } from './db'
-import { t, type Key } from './i18n'
+import { getLang, t, type Key } from './i18n'
 import {
   explainLeg,
   MIN_DAYS_FOR_EXTREMES,
@@ -73,7 +73,7 @@ const MOVERS = 8
  */
 export function BalanceCard({ model, fmt, symbol, scope, onScope, now, saving, onOpen, onOpenMonth }: Props) {
   const { points, swings, dayOf, stops, moves, marks } = model
-  const { money, bare, num, monthShort, monthYear, dayShort, dayLong, dayFull, catName, txName } = fmt
+  const { money, bare, num, monthShort, monthYear, dayShort, dayLong, dayFull, dayRow, catName, txName } = fmt
   const list = swings.list
   // Il giorno scelto (mezzanotte locale), o null: allora si parla di oggi.
   const [day, setDay] = useState<number | null>(null)
@@ -83,6 +83,8 @@ export function BalanceCard({ model, fmt, symbol, scope, onScope, now, saving, o
   const [allMovers, setAllMovers] = useState(false)
   // Il tratto da portare a schermo dopo "Vedi i movimenti".
   const reveal = useRef<number | null>(null)
+  // Ogni tocco di "Vedi i movimenti" è un cambiamento suo: così lo scorrimento parte sempre, e solo allora.
+  const [revealTick, setRevealTick] = useState(0)
 
   const last = points.length - 1
   const indexOf = useMemo(() => new Map(points.map((p, i) => [p.day, i])), [points])
@@ -112,11 +114,20 @@ export function BalanceCard({ model, fmt, symbol, scope, onScope, now, saving, o
   const item = (name: string, amount: number) => t('trend.ev.item', { name, amount: money(amount) })
   const groupItem = (g: LegGroup) => (g.count > 1 ? t('trend.ev.itemN', { name: groupName(g), n: g.count, amount: money(g.total) }) : item(groupName(g), g.total))
   const usualOf = (s: Swing) => (s.dir === 'up' ? swings.usualUp : swings.usualDown)
-  /** Tra quali giorni: date da sole, mai attaccate a un articolo ("dal 8" in italiano è sbagliato). */
-  const rangeText = (s: Swing): string => {
+  /**
+   * Tra quali giorni: date da sole, mai attaccate a un articolo ("dal 8" in italiano è sbagliato). Un tratto in corso
+   * arriva a oggi, anche se l'ultimo movimento è di qualche giorno fa. `tight`: accanto ai due pulsanti lo spazio è
+   * poco, e un tratto a cavallo dell'anno scrive gli anni a due cifre.
+   */
+  const rangeText = (s: Swing, tight = false): string => {
+    if (s.open === 'running') {
+      const start = sameYear(s.from.day, points[last].day) ? dayShort(s.from.day) : dayLong(s.from.day)
+      return s.from.day === points[last].day ? dayLong(s.from.day) : t('trend.sw.toToday', { from: start })
+    }
     if (s.days <= 1) return dayLong(s.to.day)
-    const from = sameYear(s.from.day, s.to.day) ? dayShort(s.from.day) : dayLong(s.from.day)
-    return s.open === 'running' ? t('trend.sw.toToday', { from }) : t('trend.sw.range', { from, to: dayLong(s.to.day) })
+    const same = sameYear(s.from.day, s.to.day)
+    const day = !same && tight ? dayRow : dayLong
+    return t('trend.sw.range', { from: same ? dayShort(s.from.day) : day(s.from.day), to: day(s.to.day) })
   }
   /** Da cosa è fatto un tratto, in breve: i movimenti se sono pochi, altrimenti i gruppi più pesanti. */
   const causes = (s: Swing, leg: Leg): string[] => {
@@ -164,14 +175,24 @@ export function BalanceCard({ model, fmt, symbol, scope, onScope, now, saving, o
     return parts.join(' ')
   }
   const short = points.length < MIN_DAYS_FOR_EXTREMES
-  const rowTitle = (s: Swing): string =>
-    s.open === 'running'
-      ? t('trend.ev.today')
-      : !short && s.toIndex === swings.highIndex
-        ? t('trend.ev.max')
-        : !short && s.toIndex === swings.lowIndex
-          ? t('trend.ev.min')
-          : t(s.dir === 'up' ? 'trend.ev.high' : 'trend.ev.low')
+  const rowTitle = (s: Swing): string => {
+    const extreme = short ? null : s.toIndex === swings.highIndex ? t('trend.ev.max') : s.toIndex === swings.lowIndex ? t('trend.ev.min') : null
+    // Se oggi è anche il massimo o il minimo del periodo si dicono tutte e due le cose.
+    if (s.open === 'running') return extreme ? `${t('trend.ev.today')} · ${extreme.toLowerCase()}` : t('trend.ev.today')
+    return extreme ?? t(s.dir === 'up' ? 'trend.ev.high' : 'trend.ev.low')
+  }
+  // Le parole di ogni riga dell'elenco si compongono una volta per tratto: scorrere la linea ridisegna l'elenco a ogni
+  // giorno, e riscriverle tutte ogni volta (decine di cifre a riga) è quello che lo rallenta con una storia lunga.
+  const lang = getLang()
+  const words = useMemo(() => new Map<number, { title: string; text: string }>(), [model, fmt, scope, lang])
+  const wordsOf = (s: Swing, leg: Leg) => {
+    let w = words.get(s.id)
+    if (!w) {
+      w = { title: rowTitle(s), text: rowText(s, leg) }
+      words.set(s.id, w)
+    }
+    return w
+  }
 
   // ——— Sopra il grafico: il tratto, il perché, il giorno ———
   const move = moves[at]
@@ -201,13 +222,37 @@ export function BalanceCard({ model, fmt, symbol, scope, onScope, now, saving, o
     setOpenLeg(s.id)
     setAllMovers(false)
     reveal.current = s.id
+    setRevealTick((n) => n + 1)
   }
   useEffect(() => {
     const id = reveal.current
     if (id === null) return
     reveal.current = null
     document.getElementById(`swing-${id}`)?.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
-  })
+  }, [revealTick])
+
+  // La tabella mese per mese non dipende dal giorno scelto: si compone una volta.
+  const monthRows = useMemo(
+    () =>
+      [...model.env].reverse().map((e) => (
+        <tr key={e.month}>
+          <th scope="row">
+            <button className="link-btn" onClick={() => onOpenMonth(e.month)}>
+              {monthYear(e.month)}
+            </button>
+          </th>
+          <td>
+            {bare(e.low.value)} <span className="muted">({new Date(e.low.day).getDate()})</span>
+          </td>
+          <td>
+            {bare(e.high.value)} <span className="muted">({new Date(e.high.day).getDate()})</span>
+          </td>
+          <td>{bare(e.end.value)}</td>
+        </tr>
+      )),
+    // Le funzioni che scrivono cifre e date vengono da `fmt`: cambiano con lui.
+    [model.env, fmt, onOpenMonth],
+  )
 
   const usualLine =
     swings.usualUp !== null && swings.usualDown !== null
@@ -249,9 +294,9 @@ export function BalanceCard({ model, fmt, symbol, scope, onScope, now, saving, o
       {/* Sei righe, sempre: mentre il dito scorre il grafico non deve muoversi sotto di lui. */}
       <div className="readout swing">
         <span className="readout-leg" aria-live="polite">
-          {swing ? t(swing.dir === 'up' ? 'trend.sw.up' : 'trend.sw.down', { amount: money(swing.amount) }) : t('trend.sw.flat')}
+          {swing ? t(swing.dir === 'up' ? 'trend.sw.up' : 'trend.sw.down', { amount: money(swing.amount) }) : points[at].delta === 0 ? t('trend.sw.flat') : ''}
         </span>
-        <span className="readout-when">{swing ? rangeText(swing) : ''}</span>
+        <span className="readout-when">{swing ? rangeText(swing, true) : ''}</span>
         <span className="pager">
           <button aria-label={t('trend.sw.prev')} disabled={position <= 0} onClick={() => go(position - 1)}>
             ‹
@@ -284,6 +329,7 @@ export function BalanceCard({ model, fmt, symbol, scope, onScope, now, saving, o
         axis={fmt.axisLabels}
         amount={money}
         month={monthShort}
+        day={dayShort}
       />
       {marks.length > 0 && (
         <p className="chart-legend">
@@ -336,6 +382,7 @@ export function BalanceCard({ model, fmt, symbol, scope, onScope, now, saving, o
           <ul className="ev-list">
             {visible.map((s) => {
               const leg = legOf(s)
+              const row = wordsOf(s, leg)
               const open = openLeg === s.id
               const on = selected !== null && swing === s
               return (
@@ -343,12 +390,12 @@ export function BalanceCard({ model, fmt, symbol, scope, onScope, now, saving, o
                   <button className="ev-head" aria-pressed={on} title={t('trend.sw.select')} onClick={() => setDay(s.to.day)}>
                     <span className={`ev-mark${s.open === 'running' && !filledAt.has(s.toIndex) ? ' today' : filledAt.has(s.toIndex) ? '' : ' hollow'}`} aria-hidden="true" />
                     <span className="ev-title">
-                      {rowTitle(s)}
-                      <span className="muted"> · {dayLong(s.to.day)}</span>
+                      {row.title}
+                      <span className="muted"> · {dayLong(s.open === 'running' ? points[last].day : s.to.day)}</span>
                     </span>
                     <span className="legend-value">{money(s.to.value)}</span>
                   </button>
-                  <p className="ev-text">{rowText(s, leg)}</p>
+                  <p className="ev-text">{row.text}</p>
                   {leg.movers.length > 0 && (
                     <button
                       className="link-btn"
@@ -401,22 +448,7 @@ export function BalanceCard({ model, fmt, symbol, scope, onScope, now, saving, o
               </tr>
             </thead>
             <tbody>
-              {[...model.env].reverse().map((e) => (
-                <tr key={e.month}>
-                  <th scope="row">
-                    <button className="link-btn" onClick={() => onOpenMonth(e.month)}>
-                      {monthYear(e.month)}
-                    </button>
-                  </th>
-                  <td>
-                    {bare(e.low.value)} <span className="muted">({new Date(e.low.day).getDate()})</span>
-                  </td>
-                  <td>
-                    {bare(e.high.value)} <span className="muted">({new Date(e.high.day).getDate()})</span>
-                  </td>
-                  <td>{bare(e.end.value)}</td>
-                </tr>
-              ))}
+              {monthRows}
             </tbody>
           </table>
         </div>

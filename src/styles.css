@@ -3981,11 +3981,9 @@ button.secondary:not(.slim) {
   align-self: auto;
   margin-left: auto;
 }
-/* Su uno schermo stretto le due righe diventano tre o quattro: l'altezza resta quella, così le colonne non saltano. */
-@media (max-width: 359px) {
-  .keep .readout {
-    min-height: 72px;
-  }
+/* Due righe per il mese e due per le cifre: è il caso più lungo, a ogni larghezza, così le colonne non saltano. */
+.keep .readout {
+  min-height: 68px;
 }
 
 /* Grafici: griglie e assi restano sullo sfondo, il testo usa i colori del testo. */

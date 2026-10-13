@@ -6,7 +6,7 @@ import { signedMain } from './data'
 import type { Account, Category, Currency, Goal, Transaction } from './db'
 import { builtinName, dateFmt, getLang, t, type Key } from './i18n'
 import { FIG_BODY } from './Goals'
-import { formatMoney } from './money'
+import { formatMoney, moneyParts } from './money'
 import { amountText, fold, matches, readQuery, searchTotals, SORT_ORDERS, sortTransactions, type Haystack, type SortOrder } from './search'
 
 /**
@@ -35,6 +35,8 @@ interface Props {
   monthTx: Transaction[]
   /** Tutti i movimenti dell'archivio: la ricerca guarda anche fuori dal mese. */
   allTx: Transaction[]
+  /** Il nome del mese a schermo: "solo questo mese", nella ricerca, è quello (non per forza il mese in corso). */
+  monthName: string
   forecast: number | null
   forecastInfo?: ForecastInfo | null
   mainCurrency: Currency
@@ -335,7 +337,10 @@ export function ThreadView(props: Props) {
     }
     const upcoming = tx.date > Date.now()
     const metaText = [upcoming ? t('thread.upcoming') : null, tx.recurringId ? '↻' : null, ...meta, timeFormat().format(tx.date)].filter(Boolean).join(' · ')
-    const converted = tx.currency !== mainCurrency.code && tx.kind !== 'transfer' ? formatMoney(tx.kind === 'income' ? tx.mainAmount : -tx.mainAmount, mainCurrency) : null
+    const converted =
+      tx.currency !== mainCurrency.code && tx.kind !== 'transfer'
+        ? formatMoney(tx.kind === 'income' || tx.kind === 'release' || tx.kind === 'opening' ? tx.mainAmount : -tx.mainAmount, mainCurrency)
+        : null
     return { title, metaText, amount, tone, converted, cat, goal, upcoming }
   }
 
@@ -348,6 +353,10 @@ export function ThreadView(props: Props) {
   // l'archivio dai più vecchi, o a trovare i movimenti più grandi.
   const listing = searching && (typed.length > 0 || picked)
   const pool = scope === 'all' ? allTx : monthTx
+  // Quanti movimenti sono ancora "in arrivo" a questo disegno: quando uno scade, il testo in cui si cerca, i risultati
+  // e i totali si rifanno (altrimenti resterebbero quelli di quando la ricerca è stata aperta).
+  const nowMs = Date.now()
+  const ahead = searching ? allTx.reduce((count, tx) => count + (tx.date > nowMs ? 1 : 0), 0) : 0
   // Dove si cerca, per ogni movimento: nota, categoria, obiettivo, conti e importi. Niente ora né segni di contorno
   // (cercando "12" uscirebbe tutto quello che è stato segnato alle dodici). Si prepara una volta per movimento,
   // la prima volta che serve: finché il movimento non cambia non si rifà.
@@ -379,7 +388,7 @@ export function ThreadView(props: Props) {
       done.set(tx, hay)
       return hay
     }
-  }, [catById, goalById, accById, curByCode, mainCurrency, lang])
+  }, [catById, goalById, accById, curByCode, mainCurrency, lang, ahead])
   const results = useMemo(() => {
     if (!listing) return []
     const hits = typed.length > 0 ? pool.filter((tx) => matches(hayOf(tx), typed)) : pool
@@ -454,7 +463,7 @@ export function ThreadView(props: Props) {
               setShown(RESULTS_STEP)
             }}
           >
-            {t(`thread.scope.${s}` as Key)}
+            {s === 'all' ? t('thread.scope.all') : props.monthName.replace(/^./, (ch) => ch.toUpperCase())}
           </button>
         ))}
       </div>
@@ -482,6 +491,17 @@ export function ThreadView(props: Props) {
     const money = (v: number, sign = false) => formatMoney(v, mainCurrency, { sign })
     const plural = (key: Key, n: number, vars: Record<string, string | number> = {}) => t((n === 1 ? `${key}.one` : key) as Key, { n, ...vars })
     const dayOf = (ms: number) => fullDay().format(ms)
+    let from = Infinity
+    let to = -Infinity
+    for (const tx of results) {
+      if (tx.date < from) from = tx.date
+      if (tx.date > to) to = tx.date
+    }
+    /** La cifra senza il simbolo della valuta, per la tabella: lì sopra, nei totali, il simbolo c'è già. */
+    const bare = (v: number) => {
+      const p = moneyParts(v, mainCurrency)
+      return p.whole + p.fraction
+    }
     // Una riga dei totali: quanto, quante volte e di solito quanto; su più mesi anche la media al mese.
     const totalRow = (label: string, amount: number, count: number, typical: number) => (
       <div className="search-total">
@@ -501,9 +521,7 @@ export function ThreadView(props: Props) {
         {searchTools}
         <p className="search-count" role="status">
           {t(results.length === 1 ? 'thread.found.one' : 'thread.found', { n: results.length })}
-          {totals.first !== null && totals.last !== null && (
-            <span> · {dayOf(totals.first) === dayOf(totals.last) ? dayOf(totals.first) : t('thread.tot.range', { from: dayOf(totals.first), to: dayOf(totals.last) })}</span>
-          )}
+          {results.length > 0 && <span> · {dayOf(from) === dayOf(to) ? dayOf(from) : t('thread.tot.range', { from: dayOf(from), to: dayOf(to) })}</span>}
         </p>
         {totals.count > 0 && (
           <section className="search-totals" aria-label={t('thread.tot.title')}>
@@ -535,9 +553,9 @@ export function ThreadView(props: Props) {
                     <tbody>
                       {totals.periods.map((p) => (
                         <tr key={p.start}>
-                          <th scope="row">{totals.by === 'year' ? new Date(p.start).getFullYear() : dateFmt({ month: 'long' }).format(p.start)}</th>
-                          {showOut && <td>{p.out > 0 ? money(p.out) : '—'}</td>}
-                          {showIn && <td>{p.in > 0 ? money(p.in) : '—'}</td>}
+                          <th scope="row">{totals.by === 'year' ? new Date(p.start).getFullYear() : dateFmt({ month: 'short' }).format(p.start).replace(/\./g, '')}</th>
+                          {showOut && <td>{p.out > 0 ? bare(p.out) : '—'}</td>}
+                          {showIn && <td>{p.in > 0 ? bare(p.in) : '—'}</td>}
                           <td>{p.count}</td>
                         </tr>
                       ))}
@@ -562,7 +580,10 @@ export function ThreadView(props: Props) {
                     {(scope === 'all' ? fullDay() : shortDay()).format(tx.date)} · {d.metaText}
                   </span>
                 </span>
-                <span className={`amount ${d.tone}`}>{d.amount}</span>
+                <span className={`amount ${d.tone}`}>
+                  {d.amount}
+                  {d.converted && <span className="tx-meta">{d.converted}</span>}
+                </span>
               </button>
             )
           })}
@@ -785,6 +806,7 @@ export function ThreadView(props: Props) {
           </span>
         </p>
       )}
+      {props.after}
     </div>
   )
 }

@@ -722,6 +722,7 @@ export default function App({ offline = false, local = false, onChooseAdoption }
             startBalance={view.startBalance}
             monthTx={view.monthTx}
             allTx={data.transactions}
+            monthName={monthName(view.start)}
             forecast={hideForecast ? null : view.forecast}
             forecastInfo={hideForecast ? null : view.forecastInfo}
             mainCurrency={mainCurrency}

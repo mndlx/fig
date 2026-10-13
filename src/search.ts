@@ -54,10 +54,13 @@ export function amountText(minor: number, decimals: number): string {
 export function amountForms(word: string, symbols: string[] = []): string[] {
   const trim = (s: string) => s.replace(/^[^\d\p{L}]+/u, '').replace(/[^\d\p{L}]+$/u, '')
   let w = trim(word)
-  for (const symbol of symbols) {
+  // Prima i più lunghi, e uno solo: "500all" è 500 con la sigla ALL, non "500al" col simbolo L.
+  for (const symbol of [...symbols].sort((a, b) => b.length - a.length)) {
     if (!symbol) continue
     if (w.startsWith(symbol)) w = w.slice(symbol.length)
     else if (w.endsWith(symbol)) w = w.slice(0, -symbol.length)
+    else continue
+    break
   }
   w = trim(w)
   if (!/^\d[\d.,]*$/.test(w)) return []
@@ -70,15 +73,16 @@ export function amountForms(word: string, symbols: string[] = []): string[] {
 export type Query = { word: string; amounts: string[] }[]
 
 /**
- * Le parole di quello che è stato scritto, senza maiuscole né accenti. Quelle fatte solo di segni si buttano:
- * un ":" o una virgola da soli non cercano niente. Si butta anche il simbolo della valuta scritto staccato
+ * Le parole di quello che è stato scritto, senza maiuscole né accenti, e senza i segni attaccati in testa o in coda
+ * (la tastiera del telefono mette un punto dopo due spazi: "affitto." cerca "affitto"). Quelle fatte solo di segni
+ * si buttano: un ":" o una virgola da soli non cercano niente. Si butta anche il simbolo della valuta scritto staccato
  * accanto a un importo ("431.984 L"): l'importo basta. Vuota se non resta nessuna parola.
  */
 export function readQuery(text: string, symbols: string[] = []): Query {
   const words = fold(text)
     .split(/\s+/)
-    .filter((word) => /[\p{L}\p{N}]/u.test(word))
-    .map((word) => ({ word, amounts: amountForms(word, symbols) }))
+    .map((raw) => ({ word: raw.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, ''), amounts: amountForms(raw, symbols) }))
+    .filter(({ word }) => word)
   return words.filter(({ word }, i) => !(symbols.includes(word) && ((words[i - 1]?.amounts.length ?? 0) > 0 || (words[i + 1]?.amounts.length ?? 0) > 0)))
 }
 

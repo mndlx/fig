@@ -27,6 +27,16 @@ describe('ricerca e ordinamento dei movimenti', () => {
     expect(finds(text, 'aff mar')).toBe(true)
   })
 
+  it('i segni attaccati a una parola non contano: la tastiera del telefono mette un punto dopo due spazi', () => {
+    expect(finds(hay('Affitto mese di marzo'), 'affitto. ')).toBe(true)
+    expect(finds(hay('Bar Sole'), 'bar, sole')).toBe(true)
+    expect(finds(hay('Bar Sole'), '"bar" (sole)')).toBe(true)
+    // I segni in mezzo a una parola restano: fanno parte di quello che si cerca.
+    expect(readQuery("dall'8 a.s.l.").map((w) => w.word)).toEqual(["dall'8", 'a.s.l'])
+    // "L. 1500": la sigla col punto accanto a un importo si butta come il simbolo, l'importo resta.
+    expect(finds(hay('Giornale', amountText(1_500, 0)), 'L. 1500', ['l', 'all'])).toBe(true)
+  })
+
   it('i segni da soli non cercano niente', () => {
     expect(readQuery('  ')).toEqual([])
     expect(readQuery(': · , -')).toEqual([])
@@ -55,6 +65,18 @@ describe('ricerca e ordinamento dei movimenti', () => {
     const abroad = hay('Libreria · Svago', amountText(2_840, 0), amountText(3_037, 2))
     expect(finds(abroad, '30,37')).toBe(true)
     expect(finds(abroad, '2840')).toBe(true)
+  })
+
+  it('la sigla della valuta attaccata all’importo, prima o dopo, anche quando il simbolo ne è un pezzo', () => {
+    // Lek: simbolo "L", sigla "ALL". "500all" è 500 con la sigla, non "500al" col simbolo.
+    const symbols = ['l', 'all', '€', 'eur']
+    expect(amountForms('500all', symbols)).toEqual(['500'])
+    expect(amountForms('all431.984', symbols)).toContain('431984')
+    expect(amountForms('431,984all', symbols)).toContain('431984')
+    expect(amountForms('1250eur', symbols)).toEqual(['1250'])
+    expect(amountForms('500l', symbols)).toEqual(['500'])
+    // Una parola che è solo la sigla non è un importo.
+    expect(amountForms('all', symbols)).toEqual([])
   })
 
   it('un numero dentro una parola resta una parola: non diventa un importo', () => {

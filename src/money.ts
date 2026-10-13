@@ -80,14 +80,25 @@ export interface MoneyParts {
   symbolFirst: boolean
 }
 
+const numberFormats = new Map<string, Intl.NumberFormat>()
+/**
+ * Un formattatore di numeri per lingua e decimali, costruito una volta sola: farne uno a ogni cifra (come fa
+ * toLocaleString) costa decine di volte di più che usarlo, e le statistiche scrivono centinaia di cifre a ogni disegno.
+ */
+export function numberFmt(min: number, max: number): Intl.NumberFormat {
+  const key = `${locale()}:${min}:${max}`
+  let f = numberFormats.get(key)
+  if (!f) {
+    // In italiano Intl non separa le migliaia sotto 10.000: forziamo "1.213".
+    f = new Intl.NumberFormat(locale(), { minimumFractionDigits: min, maximumFractionDigits: max, useGrouping: 'always' })
+    numberFormats.set(key, f)
+  }
+  return f
+}
+
 export function moneyParts(minor: number, currency: Currency = FALLBACK, opts: { sign?: boolean } = {}): MoneyParts {
   const value = fromMinor(Math.abs(minor), currency.decimals)
-  const body = value.toLocaleString(locale(), {
-    minimumFractionDigits: value % 1 === 0 ? 0 : currency.decimals,
-    maximumFractionDigits: currency.decimals,
-    // In italiano Intl non separa le migliaia sotto 10.000: forziamo "1.213".
-    useGrouping: 'always',
-  })
+  const body = numberFmt(value % 1 === 0 ? 0 : currency.decimals, currency.decimals).format(value)
   const sep = decimalSep()
   const cut = currency.decimals > 0 ? body.lastIndexOf(sep) : -1
   return {

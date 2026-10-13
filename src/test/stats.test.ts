@@ -584,6 +584,26 @@ describe('mettere da parte', () => {
       expect(idleStep(list, { now, typicalMonth: 100_000, wallets: none })).toEqual({ amount: 66_000, floor: 133_500, left: 67_500 })
     })
 
+    it('spostare soldi da un obiettivo a un altro lo stesso giorno non è metterne da parte di nuovo', () => {
+      // 50.000 messi via a febbraio (fuori dalla finestra); a settembre passano da un obiettivo a un altro.
+      for (const [first, second] of [['release', 'save'], ['save', 'release']] as const) {
+        const list = steady(183_500)
+        list.push(tx('save', 50_000, d(10, 10, 1), { goalId: 'old' }), tx(first, 50_000, d(10, 12, 8), { goalId: first === 'save' ? 'new' : 'old' }), tx(second, 50_000, d(10, 13, 8), { goalId: second === 'save' ? 'new' : 'old' }))
+        const step = idleStep(list, { now, typicalMonth: 100_000, wallets: none })
+        // Il disponibile non è mai sceso sotto 133.500, e niente di nuovo è stato messo da parte nella finestra.
+        expect(step).toEqual({ amount: 66_000, floor: 133_500, left: 67_500 })
+      }
+    })
+
+    it('seguita la proposta, il resto di un arrotondamento non diventa una proposta nuova', () => {
+      const list = steady(698_900)
+      const first = idleStep(list, { now, typicalMonth: 80_000, wallets: none })!
+      expect(first.amount).toBe(340_000)
+      list.push(tx('save', first.amount, d(13, 10, 9), { goalId: 'g' }))
+      // Resterebbero 9.450 da poter spostare: un trentesimo della cifra, non una cosa da proporre.
+      expect(idleStep(list, { now, typicalMonth: 80_000, wallets: none })).toBeNull()
+    })
+
     it('un obiettivo non sta in nessun conto: conta anche se sul movimento è scritto il portafoglio dei contanti', () => {
       const list = steady(183_500)
       list.push(tx('save', 91_000, d(13, 10, 9), { goalId: 'g', accountId: 'cash' }))
@@ -872,13 +892,29 @@ describe('salite e discese', () => {
     expect([list[0].notable, list[list.length - 1].notable]).toEqual([false, false])
   })
 
-  it('se dopo l’ultimo alto non succede più niente, non c’è un tratto in corso', () => {
+  it('se dopo l’ultimo alto non succede più niente, quel tratto è ancora in corso: nessun tratto vuoto in coda', () => {
     const { list } = findSwings(series(500, 400, 300, 200, 100, 600, 600, 600), { theta: 50 })
     expect(list.map((s) => [s.dir, s.fromIndex, s.toIndex, s.open])).toEqual([
       ['down', 0, 4, 'start'],
-      ['up', 4, 5, null],
+      ['up', 4, 5, 'running'],
     ])
     expect([...swingOfDay(list, 8)]).toEqual([0, 0, 0, 0, 0, 1, 1, 1])
+  })
+
+  it('la mattina, prima del primo movimento della giornata, la discesa del mese non è finita ieri', () => {
+    // Paga, poi spese fino a ieri; oggi ancora niente.
+    const quiet = findSwings(series(100, 900, 800, 700, 600, 600), { theta: 50 })
+    expect(quiet.list.map((s) => [s.dir, s.fromIndex, s.toIndex, s.open])).toEqual([
+      ['up', 0, 1, 'start'],
+      ['down', 1, 4, 'running'],
+    ])
+    // In corso: non si confronta col solito e non è "da guardare".
+    expect(quiet.list[1].versus).toBeNull()
+    expect(quiet.list[1].notable).toBe(false)
+    // Con una sola discesa, e la coda ferma, il primo tratto è anche quello in corso.
+    const only = findSwings(series(500, 400, 300, 300), { theta: 50 })
+    expect(only.list.map((s) => [s.dir, s.fromIndex, s.toIndex, s.open])).toEqual([['down', 0, 2, 'running']])
+    expect(only.list[0].versus).toBeNull()
   })
 
   it('il solito è la mediana, se i tratti sono almeno quattro e almeno metà le somiglia', () => {
@@ -992,7 +1028,12 @@ describe('salite e discese', () => {
     expect(snapToStop([10, 20], 15, 5)).toBe(10)
   })
 
-  it('la portata del dito: due pixel e mezzo in giorni, mai più di un terzo di un tratto medio, almeno un giorno', () => {
+  it('la portata del dito: due pixel e mezzo in giorni, mai più di un terzo di un tratto medio; zero se un giorno è più largo del dito', () => {
+    // Due settimane di storia: ogni giorno è largo una quindicina di pixel, si tocca da sé.
+    expect(touchReach(14, 186, 3)).toBe(0)
+    expect(touchReach(14, 346, 3, 1)).toBe(0)
+    // Tre mesi col mouse: un giorno è più largo di un pixel.
+    expect(touchReach(105, 241, 9, 1)).toBe(0)
     expect(touchReach(378, 241, 27)).toBe(4)
     expect(touchReach(105, 241, 9)).toBe(1)
     expect(touchReach(761, 186, 51)).toBe(4)
