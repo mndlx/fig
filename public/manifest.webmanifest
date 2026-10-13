@@ -9,21 +9,22 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#F4EFE6",
-  "theme_color": "#F4EFE6",
+  "background_color": "#f3eee6",
+  "theme_color": "#f3eee6",
   "categories": ["finance", "productivity"],
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
-    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+    { "src": "/icons/fig-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/fig-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/fig-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/fig-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/fig-mono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "monochrome" }
   ],
   "shortcuts": [
     {
       "name": "Nuovo movimento",
       "short_name": "Nuovo",
       "url": "/?add=1",
-      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+      "icons": [{ "src": "/icons/fig-192.png", "sizes": "192x192", "type": "image/png" }]
     }
   ]
 }

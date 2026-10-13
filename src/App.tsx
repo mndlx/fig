@@ -15,8 +15,10 @@ import { SetupCard } from './Onboarding'
 import { hasOpening, migrateInitialBalances } from './opening'
 import { Settings } from './Settings'
 import { ThreadView } from './ThreadView'
-import { Trama } from './Trama'
+import { fullMonths } from './stats'
+import { Trama, type StatsMode } from './Trama'
 import { authEnabled } from './auth'
+import { bootDone } from './boot'
 import { syncNow, useSyncStatus } from './sync'
 
 const DAY = 86_400_000
@@ -173,10 +175,15 @@ export default function App({ offline = false, local = false, onChooseAdoption }
     if (next !== 'settings') remember.set('fig-tab', next)
   }
   const [monthOffset, setMonthOffset] = useState(0)
+  // Vista delle Statistiche scelta l'ultima volta; finché non si sceglie, l'andamento se c'è almeno un mese intero.
+  const [statsChoice, setStatsChoice] = useState<StatsMode | null>(() => {
+    const saved = remember.get('fig-stats-mode')
+    return saved === 'trend' || saved === 'month' || saved === 'year' ? saved : null
+  })
   const [calcOpen, setCalcOpen] = useState(false)
   const [reconcileId, setReconcileIdRaw] = useState<string | null>(null)
   // Scorciatoia "Nuovo movimento" dall'icona dell'app (?add=1): si apre subito l'inserimento.
-  const [sheet, setSheetRaw] = useState<{ editing: Transaction | null; preset?: SheetPreset } | null>(() =>
+  const [sheet, setSheetRaw] = useState<{ editing: Transaction | null; preset?: SheetPreset; fromSearch?: boolean } | null>(() =>
     new URLSearchParams(location.search).has('add') ? { editing: null } : null,
   )
   useEffect(() => {
@@ -194,6 +201,8 @@ export default function App({ offline = false, local = false, onChooseAdoption }
   const heroRef = useRef<HTMLElement>(null)
 
   const view = useMemo(() => (data ? computeMonth(data, monthOffset) : null), [data, monthOffset])
+  const hasFullMonth = useMemo(() => !!data && !!fullMonths(data.transactions, Date.now()), [data])
+  const statsMode: StatsMode = statsChoice ?? (hasFullMonth ? 'trend' : 'month')
   const goalTotal = useMemo(() => {
     if (!data) return 0
     const balances = goalBalances(data.transactions)
@@ -264,6 +273,12 @@ export default function App({ offline = false, local = false, onChooseAdoption }
   useEffect(() => {
     if (hasLegacyBalances) void migrateInitialBalances()
   }, [hasLegacyBalances])
+
+  // I dati sono arrivati: la schermata d'avvio (il fichetto di index.html) lascia il posto all'app.
+  const ready = !!data && !!view
+  useEffect(() => {
+    if (ready) bootDone()
+  }, [ready])
 
   if (!data || !view) return <div className="app" />
 
@@ -382,8 +397,10 @@ export default function App({ offline = false, local = false, onChooseAdoption }
           }
           return db.transactions.delete(tx.id)
         })
-        // Nel filo porta la vista sul mese del movimento appena salvato.
-        if (tab === 'filo' || tab === 'trama') {
+        // Nel filo porta la vista sul mese del movimento appena salvato; non se veniva da un risultato della ricerca,
+        // che può essere di un altro mese: lì si resta dove si era.
+        // Nemmeno dall'andamento, dove non c'è un mese a schermo: lo sposterebbe di nascosto.
+        if ((tab === 'filo' || (tab === 'trama' && statsMode !== 'trend')) && !sheet.fromSearch) {
           const now = new Date()
           const when = new Date(tx.date)
           setMonthOffset((when.getFullYear() - now.getFullYear()) * 12 + when.getMonth() - now.getMonth())
@@ -468,7 +485,8 @@ export default function App({ offline = false, local = false, onChooseAdoption }
           <IconFig />
           fig
         </span>
-        {tab !== 'goals' ? monthNav : <span />}
+        {/* Obiettivi e andamento non riguardano un mese: lì il selettore del mese non c'è. */}
+        {tab === 'goals' || (tab === 'trama' && statsMode === 'trend') ? <span /> : monthNav}
         <span className="bar-actions">
           <button className="icon-btn" aria-label={t('calc.title')} onClick={() => setCalcOpen(true)}>
             <IconCalculator size={22} stroke={1.6} />
@@ -703,6 +721,7 @@ export default function App({ offline = false, local = false, onChooseAdoption }
           <ThreadView
             startBalance={view.startBalance}
             monthTx={view.monthTx}
+            allTx={data.transactions}
             forecast={hideForecast ? null : view.forecast}
             forecastInfo={hideForecast ? null : view.forecastInfo}
             mainCurrency={mainCurrency}
@@ -712,21 +731,23 @@ export default function App({ offline = false, local = false, onChooseAdoption }
             goals={data.goals}
             freshId={freshId}
             legend={realTx.length > 0 && realTx.length <= 5}
-            onOpen={(tx) => setSheet({ editing: tx })}
+            onOpen={(tx, fromSearch) => setSheet({ editing: tx, fromSearch })}
+            after={
+              // Il saldo iniziale è un movimento, ma un mese che ha solo quello è ancora vuoto.
+              view.monthTx.every((tx) => tx.kind === 'opening') && (
+                <div className="empty">
+                  <p className="empty-title">{t('empty.title', { month: monthName(view.start) })}</p>
+                  <p className="muted small">{t(firstUse ? 'empty.first' : 'empty.body')}</p>
+                  {/* Una cosa alla volta: finché c'è il riquadro dei saldi, il passo successivo aspetta. */}
+                  {firstUse && !showSetup && !(setupPending && data.setup === undefined) && !data.archivePending && (
+                    <button className="primary" onClick={() => setSheet({ editing: null })}>
+                      {t('empty.cta')}
+                    </button>
+                  )}
+                </div>
+              )
+            }
           />
-          {/* Il saldo iniziale è un movimento, ma un mese che ha solo quello è ancora vuoto. */}
-          {view.monthTx.every((tx) => tx.kind === 'opening') && (
-            <div className="empty">
-              <p className="empty-title">{t('empty.title', { month: monthName(view.start) })}</p>
-              <p className="muted small">{t(firstUse ? 'empty.first' : 'empty.body')}</p>
-              {/* Una cosa alla volta: finché c'è il riquadro dei saldi, il passo successivo aspetta. */}
-              {firstUse && !showSetup && !(setupPending && data.setup === undefined) && !data.archivePending && (
-                <button className="primary" onClick={() => setSheet({ editing: null })}>
-                  {t('empty.cta')}
-                </button>
-              )}
-            </div>
-          )}
         </main>
       )}
 
@@ -735,9 +756,20 @@ export default function App({ offline = false, local = false, onChooseAdoption }
           data={data}
           view={view}
           monthOffset={monthOffset}
+          mode={statsMode}
+          onMode={(mode) => {
+            setStatsChoice(mode)
+            remember.set('fig-stats-mode', mode)
+          }}
           onOpen={(tx) => setSheet({ editing: tx })}
           onPickMonth={setMonthOffset}
           onAdd={() => setSheet({ editing: null })}
+          onAddExpense={(accountId) => setSheet({ editing: null, preset: { mode: 'expense', accountId } })}
+          onSetAside={(amount) => {
+            // Con un obiettivo si apre il "metti da parte" con la cifra già scritta; senza, prima se ne crea uno.
+            if (hasGoals) setSheet({ editing: null, preset: { mode: 'goal', goalDir: 'save', amount: amount / 10 ** mainCurrency.decimals } })
+            else setGoalForm({ goal: null, returnTo: 'trama' })
+          }}
         />
       )}
 

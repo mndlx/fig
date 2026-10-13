@@ -1,5 +1,6 @@
 import { IconRepeat } from '@tabler/icons-react'
 import { useMemo, useState, type CSSProperties } from 'react'
+import { Andamento } from './Andamento'
 import type { MonthView } from './App'
 import { CategoryIcon } from './catIcons'
 import type { AppData } from './data'
@@ -7,13 +8,23 @@ import type { Category, Transaction } from './db'
 import { builtinName, dateFmt, decimalSep, t } from './i18n'
 import { formatMoney } from './money'
 
+/** Le tre viste delle Statistiche: l'andamento di lungo periodo, un mese, un anno. */
+export type StatsMode = 'trend' | 'month' | 'year'
+
 interface Props {
   data: AppData
   view: MonthView
   monthOffset: number
+  /** La vista scelta: la tiene l'app, perché nell'andamento la barra in alto non mostra il mese. */
+  mode: StatsMode
+  onMode: (mode: StatsMode) => void
   onOpen: (tx: Transaction) => void
   onPickMonth: (offset: number) => void
   onAdd: () => void
+  /** Apre l'inserimento di una spesa pagata dal conto indicato. */
+  onAddExpense: (accountId: string) => void
+  /** Mette da parte una cifra in un obiettivo (o ne fa creare uno). */
+  onSetAside: (amount: number) => void
 }
 
 const DAY = 86_400_000
@@ -54,8 +65,7 @@ function scaleCap(values: number[]): number {
 
 type Insight = { key: string; text: string; tone?: 'up' | 'down' }
 
-export function Trama({ data, view, monthOffset, onOpen, onPickMonth, onAdd }: Props) {
-  const [mode, setMode] = useState<'month' | 'year'>('month')
+export function Trama({ data, view, monthOffset, mode, onMode: setMode, onOpen, onPickMonth, onAdd, onAddExpense, onSetAside }: Props) {
   const [focus, setFocus] = useState<string | null>(null)
   const [pickedDay, setPickedDay] = useState<number | null>(null)
   const [withFixed, setWithFixed] = useState(false)
@@ -218,20 +228,51 @@ export function Trama({ data, view, monthOffset, onOpen, onPickMonth, onAdd }: P
     </div>
   )
 
+  const modeSwitch = (
+    <div className="switch" role="tablist">
+      <button role="tab" aria-selected={mode === 'trend'} className={mode === 'trend' ? 'on' : ''} onClick={() => setMode('trend')}>
+        {t('weave.trend')}
+      </button>
+      <button role="tab" aria-selected={mode === 'month'} className={mode === 'month' ? 'on' : ''} onClick={() => setMode('month')}>
+        {t('weave.month')}
+      </button>
+      <button role="tab" aria-selected={mode === 'year'} className={mode === 'year' ? 'on' : ''} onClick={() => setMode('year')}>
+        {t('weave.year')}
+      </button>
+    </div>
+  )
+
+  if (mode === 'trend') {
+    return (
+      <main>
+        <Andamento
+          data={data}
+          modeSwitch={modeSwitch}
+          onOpen={onOpen}
+          onOpenMonth={(month) => {
+            // Il mese scelto si apre nella vista del mese, contato da quello in corso.
+            const now = new Date()
+            const d = new Date(month)
+            onPickMonth((d.getFullYear() - now.getFullYear()) * 12 + d.getMonth() - now.getMonth())
+            setMode('month')
+            setPickedDay(null)
+            // Si arriva da un punto qualunque di una pagina lunga: il mese si legge dall'inizio.
+            window.scrollTo(0, 0)
+          }}
+          onAddExpense={onAddExpense}
+          onSetAside={onSetAside}
+        />
+      </main>
+    )
+  }
+
   return (
     <main>
       <h1 className="screen-title">
         {(mode === 'month' ? t('weave.titleMonth', { month: longMonth().format(view.start) }) : t('weave.titleYear', { year: year.y })).replace(/^./, (ch) => ch.toUpperCase())}
       </h1>
 
-      <div className="switch" role="tablist">
-        <button role="tab" aria-selected={mode === 'month'} className={mode === 'month' ? 'on' : ''} onClick={() => setMode('month')}>
-          {t('weave.month')}
-        </button>
-        <button role="tab" aria-selected={mode === 'year'} className={mode === 'year' ? 'on' : ''} onClick={() => setMode('year')}>
-          {t('weave.year')}
-        </button>
-      </div>
+      {modeSwitch}
 
       {bare ? (
         <section className="card empty-weave">

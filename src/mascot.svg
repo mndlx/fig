@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Il fichetto di FIG: solo forme piene, nessun contorno, sfondo trasparente. Da qui nascono icone e splash (scripts/icons.mjs). -->
+
+  <!-- foglia: mandorla che parte da dietro il picciolo -->
+  <path d="M266 124 C282 80 340 64 382 88 C362 130 308 144 266 124 Z" fill="#6f8f5e"/>
+
+  <!-- corpo: goccia panciuta, il collo sale dritto verso il picciolo -->
+  <path d="M229 140 C220 200 104 232 104 330 C104 396 168 438 256 438 C344 438 408 396 408 330 C408 232 292 200 283 140 Z" fill="#7a3d67"/>
+
+  <!-- picciolo: moncone corto appoggiato sul collo, appena inclinato -->
+  <path d="M228 146 C230 126 229 108 225 94 C222 80 231 72 245 72 C259 72 268 80 269 93 C270 110 276 128 284 146 Q256 156 228 146 Z" fill="#8a6a4a"/>
+
+  <!-- riflesso sulla spalla sinistra -->
+  <path class="fig-shine" d="M141 300 C143 272 160 250 186 236" fill="none" stroke="#9a5c85" stroke-width="13" stroke-linecap="round"/>
+
+  <!-- guance -->
+  <ellipse class="fig-cheek" cx="146" cy="372" rx="22" ry="13" fill="#d9819f"/>
+  <ellipse class="fig-cheek" cx="366" cy="372" rx="22" ry="13" fill="#d9819f"/>
+
+  <!-- occhi con un riflesso ciascuno (in un gruppo: nello splash animato sbattono le palpebre).
+       Le classi servono a scripts/icons.mjs per ricavare la sagoma dell'icona monocromatica. -->
+  <g class="fig-eyes">
+    <circle cx="190" cy="334" r="29" fill="#1e1a17"/>
+    <circle cx="322" cy="334" r="29" fill="#1e1a17"/>
+    <circle class="fig-glint" cx="181" cy="324" r="11" fill="#fffaf5"/>
+    <circle class="fig-glint" cx="313" cy="324" r="11" fill="#fffaf5"/>
+  </g>
+
+  <!-- sorriso -->
+  <path class="fig-smile" d="M238 352 Q256 370 274 352" fill="none" stroke="#1e1a17" stroke-width="13" stroke-linecap="round"/>
+</svg>

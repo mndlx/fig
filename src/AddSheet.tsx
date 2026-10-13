@@ -26,6 +26,8 @@ export interface SheetPreset {
   goalId?: string
   /** Importo già pronto (per esempio dalla calcolatrice), in unità intere della valuta. */
   amount?: number
+  /** Conto già scelto (per esempio il portafoglio dei contanti), se è tra quelli in uso. */
+  accountId?: string
 }
 
 interface Props {
@@ -128,7 +130,7 @@ export function AddSheet({ data, editing, preset, onClose, onSaved, onDeleted, o
     editing ? (editing.kind === 'expense' ? (editing.goalId ?? null) : null) : preset?.mode === 'expense' ? (preset.goalId ?? null) : null,
   )
   const [accountId, setAccountId] = useState(
-    editing?.accountId ?? activeAccounts.find((a) => a.id === remember.get(ACCOUNT_KEY))?.id ?? activeAccounts[0]?.id ?? '',
+    editing?.accountId ?? activeAccounts.find((a) => a.id === preset?.accountId)?.id ?? activeAccounts.find((a) => a.id === remember.get(ACCOUNT_KEY))?.id ?? activeAccounts[0]?.id ?? '',
   )
   // Estremo di partenza in "Sposta": 'avail' (Disponibile), 'g:<gomitolo>' o 'a:<conto>'.
   const [from, setFrom] = useState<string>(() => {

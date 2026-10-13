@@ -1,6 +1,6 @@
 /* Pagine pubbliche (privacy, eliminazione account): leggibili senza caricare l'app. */
 :root {
-  --bg: #f4efe6;
+  --bg: #f3eee6;
   --ink: #1e1a17;
   --muted: #6f675f;
   --line: rgba(30, 26, 23, 0.12);
@@ -9,7 +9,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #14111a;
+    --bg: #141118;
     --ink: #efe9e1;
     --muted: #a59d95;
     --line: rgba(239, 233, 225, 0.12);

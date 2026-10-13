@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import mascot from './mascot.svg?raw'
 
 function Icon({ children }: { children: ReactNode }) {
   return (
@@ -66,9 +67,14 @@ export const IconDown = () => (
     <path d="M6 9l6 6 6-6" />
   </Icon>
 )
+/** Il fichetto del marchio in piccolo: la sagoma della mascotte (mascot.svg) senza il viso, che a queste dimensioni non si leggerebbe. */
 export const IconFig = () => (
-  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-    <path d="M12 4.5c-.8 0-1.2.8-1.2 1.5v1C7.8 7.8 5.5 10.8 5.5 14.2c0 3.5 2.8 6.3 6.5 6.3s6.5-2.8 6.5-6.3c0-3.4-2.3-6.4-5.3-7.2V6c0-.7-.4-1.5-1.2-1.5z" fill="currentColor" />
-    <path d="M12.4 6.2c1.5-1.6 3.9-1.7 5.1-.5-1.5 1.3-3.6 1.3-5.1.5z" fill="var(--leaf)" />
+  <svg viewBox="63 62 386 386" width="20" height="20" aria-hidden="true">
+    <path d="M266 124 C282 80 340 64 382 88 C362 130 308 144 266 124 Z" fill="var(--leaf)" />
+    <path d="M229 140 C220 200 104 232 104 330 C104 396 168 438 256 438 C344 438 408 396 408 330 C408 232 292 200 283 140 Z" fill="currentColor" />
+    <path d="M228 146 C230 126 229 108 225 94 C222 80 231 72 245 72 C259 72 268 80 269 93 C270 110 276 128 284 146 Q256 156 228 146 Z" fill="currentColor" />
   </svg>
 )
+
+/** Il fichetto col suo viso, lo stesso dell'icona e della schermata d'avvio, per le schermate dove c'è spazio. */
+export const Mascot = () => <span className="mascot" aria-hidden="true" dangerouslySetInnerHTML={{ __html: mascot }} />

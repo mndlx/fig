@@ -6,13 +6,13 @@ Le regole di Google cambiano spesso: prima di ogni passo controlla la pagina uff
 
 ## Cosa è già pronto
 
-- Manifest completo (`public/manifest.webmanifest`): nome, icone PNG 192/512, icona *maskable*, categoria finanza, scorciatoia "Nuovo movimento".
+- Manifest completo (`public/manifest.webmanifest`): nome, icone PNG 192/512 (senza fondo), icone *maskable* e monocromatica, categoria finanza, scorciatoia "Nuovo movimento".
 - Service worker: l'app si apre anche offline.
 - Pagine pubbliche: [privacy](https://fig.vlabstudio.net/privacy.html) e [eliminazione account](https://fig.vlabstudio.net/delete-account.html).
 - Eliminazione dell'account dall'app (Impostazioni → Elimina account).
 - Uso senza account, **spento finché non lo attivi**: al lancio aggiungi `LOCAL_MODE=1` in `/opt/fig/.env` e riavvia il container (o chiedimelo). Testi della scheda e privacy lo danno per attivo.
 - `/.well-known/assetlinks.json`: il server lo genera da `ANDROID_PACKAGE` e `ANDROID_CERT_SHA256` in `/opt/fig/.env` (vedi passo 4).
-- Grafiche: `icon-512.png` (icona dello Store) e `feature-graphic-1024x500.png`; si rigenerano con `make-assets.mjs`.
+- Grafiche: `icon-512.png` (icona dello Store) e `feature-graphic-1024x500.png`; si rigenerano, insieme a tutte le icone e alle immagini di avvio, con `scripts/icons.mjs` a partire da `src/mascot.svg`.
 
 ## Passi (da fare tu)
 
@@ -38,8 +38,9 @@ Risposte consigliate:
 | Application ID (package) | `net.vlabstudio.fig` (non si può più cambiare dopo la pubblicazione) |
 | App name / Launcher name | `FIG` |
 | Display mode | `standalone` |
-| Status bar color / Splash color | `#F4EFE6` |
-| Icon / Maskable icon | quelle proposte dal manifest |
+| Status bar color / Splash color | `#F3EEE6` (lo stesso sfondo dell'app e del manifest: tra splash e app non cambia colore) |
+| Navigation bar color | `#F3EEE6` anche qui, altrimenti sotto lo splash chiaro resta una barra nera. In `twa-manifest.json`: `navigationColor` e `themeColor` `#F3EEE6`; `themeColorDark` e `navigationColorDark` `#141118` |
+| Icon / Maskable icon | quelle proposte dal manifest (`fig-512.png` senza fondo, che diventa lo splash; `fig-maskable-512.png`; `fig-mono-512.png` per le notifiche) |
 | Signing key | crea una chiave nuova |
 
 **La chiave di firma è tua**: scegli tu le password e conserva il file `.keystore` e le password in un posto sicuro (password manager + copia di backup). Senza la chiave non puoi più aggiornare l'app. Non va nel repository.

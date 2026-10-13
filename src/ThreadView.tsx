@@ -1,12 +1,13 @@
 import { IconChevronDown, IconChevronsDown, IconChevronsUp, IconInfoCircle, IconSearch, IconX } from '@tabler/icons-react'
 import type { ForecastInfo } from './App'
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { CategoryIcon } from './catIcons'
 import { signedMain } from './data'
 import type { Account, Category, Currency, Goal, Transaction } from './db'
-import { builtinName, dateFmt, t } from './i18n'
+import { builtinName, dateFmt, getLang, t, type Key } from './i18n'
 import { FIG_BODY } from './Goals'
 import { formatMoney } from './money'
+import { amountText, fold, matches, readQuery, searchTotals, SORT_ORDERS, sortTransactions, type Haystack, type SortOrder } from './search'
 
 /**
  * Il ramo del mese, dal più recente in alto all'inizio del mese in basso.
@@ -26,9 +27,14 @@ type Row =
   | { type: 'summary'; key: string; date: Date; txs: Transaction[]; before: number; after: number; spent: number }
   | { type: 'start'; balance: number }
 
+/** Quanti risultati della ricerca si mostrano prima di "Mostra altri". */
+const RESULTS_STEP = 60
+
 interface Props {
   startBalance: number
   monthTx: Transaction[]
+  /** Tutti i movimenti dell'archivio: la ricerca guarda anche fuori dal mese. */
+  allTx: Transaction[]
   forecast: number | null
   forecastInfo?: ForecastInfo | null
   mainCurrency: Currency
@@ -39,7 +45,10 @@ interface Props {
   freshId: string | null
   /** Primi movimenti: sotto il ramo si spiega cosa sono foglie, gemme e fichi. */
   legend?: boolean
-  onOpen: (tx: Transaction) => void
+  /** Quello che sta sotto il ramo (il mese ancora vuoto): non si mostra sotto i risultati di una ricerca. */
+  after?: ReactNode
+  /** `fromSearch`: aperto da un risultato della ricerca, che può essere di un altro mese. */
+  onOpen: (tx: Transaction, fromSearch?: boolean) => void
 }
 
 /** Ascissa del filo in funzione della quota verticale: un'ondulazione lenta e continua. */
@@ -57,6 +66,7 @@ function pathBetween(y0: number, y1: number, offset: number): string {
 
 const dayFormat = () => dateFmt({ weekday: 'long', day: 'numeric', month: 'long' })
 const shortDay = () => dateFmt({ weekday: 'short', day: 'numeric' })
+const fullDay = () => dateFmt({ day: 'numeric', month: 'short', year: 'numeric' })
 const timeFormat = () => dateFmt({ hour: '2-digit', minute: '2-digit' })
 
 const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`
@@ -130,7 +140,7 @@ function Bud({ x, y, r, color }: { x: number; y: number; r: number; color: strin
 }
 
 export function ThreadView(props: Props) {
-  const { startBalance, monthTx, forecast, forecastInfo, mainCurrency, currencies, categories, accounts, goals, freshId } = props
+  const { startBalance, monthTx, allTx, forecast, forecastInfo, mainCurrency, currencies, categories, accounts, goals, freshId } = props
   const [dayState, setDayState] = useState<Record<string, boolean>>(loadDays)
   const [infoOpen, setInfoOpen] = useState(false)
   // Movimento appena salvato il cui giorno è stato richiuso a mano: da lì in poi non si riapre da solo.
@@ -144,6 +154,19 @@ export function ThreadView(props: Props) {
   }, [infoOpen])
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
+  // Dove si cerca (tutto l'archivio o solo il mese a schermo), in che ordine, e quanti risultati sono già a schermo.
+  const [scope, setScope] = useState<'all' | 'month'>('all')
+  const [order, setOrder] = useState<SortOrder>('recent')
+  const [shown, setShown] = useState(RESULTS_STEP)
+  // Scelto a mano dove cercare o in che ordine: da lì l'elenco c'è anche senza scrivere niente.
+  const [picked, setPicked] = useState(false)
+  const openSearch = useRef<HTMLButtonElement>(null)
+  const wasSearching = useRef(false)
+  // Chiusa la ricerca, chi usa la tastiera riparte dal pulsante che l'ha aperta, non dall'inizio della pagina.
+  useEffect(() => {
+    if (wasSearching.current && !searching) openSearch.current?.focus()
+    wasSearching.current = searching
+  }, [searching])
 
   const catById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
   const accById = useMemo(() => new Map(accounts.map((a) => [a.id, a])), [accounts])
@@ -316,21 +339,53 @@ export function ThreadView(props: Props) {
     return { title, metaText, amount, tone, converted, cat, goal, upcoming }
   }
 
-  // ——— Ricerca: elenco semplice dei movimenti del mese che corrispondono ———
-  const q = query.trim().toLowerCase()
+  // ——— Ricerca: elenco semplice dei movimenti che corrispondono, in tutto l'archivio o nel mese, nell'ordine scelto ———
+  const lang = getLang()
+  // Simboli e sigle delle valute: scritti attaccati a un importo ("L431,984", "30,37€") non impediscono di trovarlo.
+  const symbols = useMemo(() => currencies.flatMap((c) => [fold(c.symbol), fold(c.code)]), [currencies])
+  const typed = useMemo(() => readQuery(query, symbols), [query, symbols])
+  // Senza scrivere niente l'elenco c'è lo stesso appena si sceglie dove cercare o un ordine: serve a scorrere
+  // l'archivio dai più vecchi, o a trovare i movimenti più grandi.
+  const listing = searching && (typed.length > 0 || picked)
+  const pool = scope === 'all' ? allTx : monthTx
+  // Dove si cerca, per ogni movimento: nota, categoria, obiettivo, conti e importi. Niente ora né segni di contorno
+  // (cercando "12" uscirebbe tutto quello che è stato segnato alle dodici). Si prepara una volta per movimento,
+  // la prima volta che serve: finché il movimento non cambia non si rifà.
+  const hayOf = useMemo(() => {
+    const done = new WeakMap<Transaction, Haystack>()
+    const account = (id?: string) => {
+      const a = id ? accById.get(id) : undefined
+      return a ? builtinName(a, 'acc') : null
+    }
+    return (tx: Transaction): Haystack => {
+      const known = done.get(tx)
+      if (known) return known
+      const cat = tx.categoryId ? catById.get(tx.categoryId) : undefined
+      const goal = tx.goalId ? goalById.get(tx.goalId) : undefined
+      const moved = tx.kind === 'income' || tx.kind === 'expense'
+      const words = [
+        tx.note,
+        cat ? builtinName(cat, 'cat') : moved ? t('thread.uncategorized') : null,
+        goal ? (tx.kind === 'expense' ? t('thread.fromGoal', { goal: goal.name }) : goal.name) : null,
+        account(tx.accountId),
+        account(tx.toAccountId),
+        tx.kind === 'opening' ? t('thread.opening') : tx.kind === 'transfer' ? t('thread.transfer') : tx.kind === 'save' ? t('thread.saved') : tx.kind === 'release' ? t('thread.released') : null,
+        tx.date > Date.now() ? t('thread.upcoming') : null,
+      ]
+      const amounts = [amountText(tx.mainAmount, mainCurrency.decimals)]
+      // Un movimento in un'altra valuta si trova anche con la cifra che si legge sulla sua riga.
+      if (tx.currency !== mainCurrency.code) amounts.push(amountText(tx.amount, (curByCode.get(tx.currency) ?? mainCurrency).decimals))
+      const hay = { text: fold(words.filter(Boolean).join(' ')), amounts }
+      done.set(tx, hay)
+      return hay
+    }
+  }, [catById, goalById, accById, curByCode, mainCurrency, lang])
   const results = useMemo(() => {
-    if (!q) return []
-    return [...monthTx].reverse().filter((tx) => {
-      const d = describe(tx)
-      const amountText = (tx.mainAmount / 10 ** mainCurrency.decimals).toFixed(mainCurrency.decimals)
-      return (
-        d.title.toLowerCase().includes(q) ||
-        d.metaText.toLowerCase().includes(q) ||
-        accName(tx.accountId).toLowerCase().includes(q) ||
-        amountText.includes(q.replace(',', '.'))
-      )
-    })
-  }, [q, monthTx, categories, goals, accounts])
+    if (!listing) return []
+    const hits = typed.length > 0 ? pool.filter((tx) => matches(hayOf(tx), typed)) : pool
+    return sortTransactions(hits, order)
+  }, [listing, typed, pool, hayOf, order])
+  const totals = useMemo(() => searchTotals(results, Date.now()), [results])
 
   const searchBar = (
     <div className={`thread-search${searching ? ' open' : ''}`}>
@@ -353,14 +408,22 @@ export function ThreadView(props: Props) {
             autoFocus
             value={query}
             placeholder={t('thread.searchPlaceholder')}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value)
+              setShown(RESULTS_STEP)
+            }}
             aria-label={t('thread.search')}
           />
           <button
             className="icon-btn"
             aria-label={t('common.close')}
             onClick={() => {
+              // Ogni ricerca riparte da tutto l'archivio, dai più recenti.
               setQuery('')
+              setScope('all')
+              setOrder('recent')
+              setPicked(false)
+              setShown(RESULTS_STEP)
               setSearching(false)
             }}
           >
@@ -368,7 +431,7 @@ export function ThreadView(props: Props) {
           </button>
         </>
       ) : (
-        <button className="search-open" onClick={() => setSearching(true)}>
+        <button className="search-open" ref={openSearch} onClick={() => setSearching(true)}>
           <IconSearch size={16} />
           {t('thread.searchShort')}
         </button>
@@ -376,27 +439,127 @@ export function ThreadView(props: Props) {
     </div>
   )
 
-  if (q) {
-    const total = results.reduce((s, tx) => s + signedMain(tx), 0)
+  // Sotto il campo di ricerca: dove cercare e in che ordine mostrare i risultati.
+  const searchTools = searching && (
+    <div className="search-tools">
+      <div className="switch compact" role="group" aria-label={t('thread.scope')}>
+        {(['all', 'month'] as const).map((s) => (
+          <button
+            key={s}
+            className={scope === s ? 'on' : ''}
+            aria-pressed={scope === s}
+            onClick={() => {
+              setScope(s)
+              setPicked(true)
+              setShown(RESULTS_STEP)
+            }}
+          >
+            {t(`thread.scope.${s}` as Key)}
+          </button>
+        ))}
+      </div>
+      <label className="search-sort">
+        <span className="sr-only">{t('thread.sort')}</span>
+        <select
+          value={order}
+          onChange={(e) => {
+            setOrder(e.target.value as SortOrder)
+            setPicked(true)
+            setShown(RESULTS_STEP)
+          }}
+        >
+          {SORT_ORDERS.map((o) => (
+            <option key={o} value={o}>
+              {t(`thread.sort.${o}` as Key)}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  )
+
+  if (listing) {
+    const money = (v: number, sign = false) => formatMoney(v, mainCurrency, { sign })
+    const plural = (key: Key, n: number, vars: Record<string, string | number> = {}) => t((n === 1 ? `${key}.one` : key) as Key, { n, ...vars })
+    const dayOf = (ms: number) => fullDay().format(ms)
+    // Una riga dei totali: quanto, quante volte e di solito quanto; su più mesi anche la media al mese.
+    const totalRow = (label: string, amount: number, count: number, typical: number) => (
+      <div className="search-total">
+        <dt>{label}</dt>
+        <dd className="amount">{money(amount)}</dd>
+        <dd className="tx-meta">
+          {count === 1 ? t('thread.tot.times.one') : t('thread.tot.times', { n: count, amount: money(typical) })}
+          {totals.months >= 2 && ` · ${t('thread.tot.avg', { amount: money(Math.round(amount / totals.months)), n: totals.months })}`}
+        </dd>
+      </div>
+    )
+    const showOut = totals.periods.some((p) => p.out > 0)
+    const showIn = totals.periods.some((p) => p.in > 0)
     return (
       <div className="thread">
         {searchBar}
-        <p className="search-count">
-          {t('thread.found', { n: results.length })}
-          {results.length > 0 && <span> · {formatMoney(total, mainCurrency, { sign: true })}</span>}
+        {searchTools}
+        <p className="search-count" role="status">
+          {t(results.length === 1 ? 'thread.found.one' : 'thread.found', { n: results.length })}
+          {totals.first !== null && totals.last !== null && (
+            <span> · {dayOf(totals.first) === dayOf(totals.last) ? dayOf(totals.first) : t('thread.tot.range', { from: dayOf(totals.first), to: dayOf(totals.last) })}</span>
+          )}
         </p>
+        {totals.count > 0 && (
+          <section className="search-totals" aria-label={t('thread.tot.title')}>
+            <dl>
+              {totals.outCount > 0 && totalRow(t('thread.tot.out'), totals.out, totals.outCount, totals.outTypical)}
+              {totals.inCount > 0 && totalRow(t('thread.tot.in'), totals.in, totals.inCount, totals.inTypical)}
+              {totals.outCount > 0 && totals.inCount > 0 && (
+                <div className="search-total net">
+                  <dt>{t('thread.tot.net')}</dt>
+                  <dd className={`amount ${totals.in - totals.out < 0 ? '' : 'positive'}`}>{money(totals.in - totals.out, true)}</dd>
+                </div>
+              )}
+            </dl>
+            {totals.moved > 0 && <p className="tx-meta">{plural('thread.tot.moved', totals.moved)}</p>}
+            {totals.upcoming > 0 && <p className="tx-meta">{plural('thread.tot.upcoming', totals.upcoming)}</p>}
+            {totals.by && (
+              <details className="twin">
+                <summary>{t(totals.by === 'year' ? 'thread.tot.byYear' : 'thread.tot.byMonth')}</summary>
+                <div className="twin-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th scope="col">{t(totals.by === 'year' ? 'thread.tot.year' : 'trend.col.month')}</th>
+                        {showOut && <th scope="col">{t('thread.tot.out')}</th>}
+                        {showIn && <th scope="col">{t('thread.tot.in')}</th>}
+                        <th scope="col">{t('thread.tot.count')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {totals.periods.map((p) => (
+                        <tr key={p.start}>
+                          <th scope="row">{totals.by === 'year' ? new Date(p.start).getFullYear() : dateFmt({ month: 'long' }).format(p.start)}</th>
+                          {showOut && <td>{p.out > 0 ? money(p.out) : '—'}</td>}
+                          {showIn && <td>{p.in > 0 ? money(p.in) : '—'}</td>}
+                          <td>{p.count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            )}
+          </section>
+        )}
         <div className="list">
-          {results.map((tx) => {
+          {results.slice(0, shown).map((tx) => {
             const d = describe(tx)
             return (
-              <button key={tx.id} className="list-row search-row" onClick={() => props.onOpen(tx)}>
+              <button key={tx.id} className="list-row search-row" onClick={() => props.onOpen(tx, true)}>
                 <span className="row-icon" style={{ '--c': d.goal?.color ?? d.cat?.color ?? 'var(--muted)' } as CSSProperties}>
                   <CategoryIcon name={iconOf(tx, d.cat?.icon)} size={16} />
                 </span>
                 <span className="grow">
                   {d.title}
                   <span className="tx-meta" style={{ display: 'block' }}>
-                    {shortDay().format(tx.date)} · {d.metaText}
+                    {(scope === 'all' ? fullDay() : shortDay()).format(tx.date)} · {d.metaText}
                   </span>
                 </span>
                 <span className={`amount ${d.tone}`}>{d.amount}</span>
@@ -404,6 +567,11 @@ export function ThreadView(props: Props) {
             )
           })}
         </div>
+        {results.length > shown && (
+          <button className="link-btn search-more" onClick={() => setShown((n) => n + RESULTS_STEP)}>
+            {results.length - shown === 1 ? t('thread.more.one') : t('thread.more', { n: Math.min(RESULTS_STEP, results.length - shown) })}
+          </button>
+        )}
       </div>
     )
   }
@@ -412,7 +580,8 @@ export function ThreadView(props: Props) {
   let leafCount = 0
   return (
     <div className="thread">
-      {monthTx.length > 0 && searchBar}
+      {(searching || allTx.length > 0) && searchBar}
+      {searchTools}
       {rows.map((row, index) => {
         const h = ROW[row.type]
         const y = offset

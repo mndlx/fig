@@ -13,10 +13,17 @@ export function readTheme(): Theme {
   return 'auto'
 }
 
+/** Colore della barra di stato per tema: lo stesso sfondo dell'app (--bg in styles.css, e index.html). */
+const BAR = { light: '#f3eee6', dark: '#141118' }
+
 export function applyTheme(theme: Theme) {
   const root = document.documentElement
   if (theme === 'auto') delete root.dataset.theme
   else root.dataset.theme = theme
+  // La barra di stato segue il tema scelto a mano; in automatico ogni <meta> torna al colore del suo tema di sistema.
+  for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
+    meta.content = BAR[theme === 'auto' ? (meta.media.includes('dark') ? 'dark' : 'light') : theme]
+  }
 }
 
 export function writeTheme(theme: Theme) {

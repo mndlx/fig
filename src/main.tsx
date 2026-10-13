@@ -1,11 +1,12 @@
-import { StrictMode, useState } from 'react'
+import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AdoptionChoice } from './AdoptionChoice'
 import App from './App'
 import { initAuth, isLocalOnly, setLocalOnly, signIn } from './auth'
+import { bootDone, bootNote, bootShowing } from './boot'
 import { db } from './db'
 import { getLang, t } from './i18n'
-import { IconFig } from './icons'
+import { Mascot } from './icons'
 import { materializeRecurring } from './recurring'
 import { getSyncStatus, startSync, stopSyncQueue, useSyncStatus } from './sync'
 import { applyTheme, readTheme } from './theme'
@@ -17,6 +18,15 @@ import './styles.css'
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js'))
 }
+
+// L'app è partita: la schermata d'avvio di index.html smette di aspettarla (vedi gli avvisi lì).
+document.documentElement.dataset.app = '1'
+
+// Tornando indietro dalla pagina di accesso il browser può ripresentare questa pagina com'era, ferma a metà avvio:
+// in quel caso si riparte.
+window.addEventListener('pageshow', (event) => {
+  if (event.persisted && bootShowing()) location.reload()
+})
 
 // Tema scelto dall'utente, prima del primo disegno.
 applyTheme(readTheme())
@@ -31,25 +41,46 @@ const FIRST_SYNC_WAIT = 10_000
 function Wordmark() {
   return (
     <h1 className="wordmark big">
-      <IconFig />
+      <Mascot />
       fig
     </h1>
   )
 }
 
-function Gate({ kind }: { kind: 'loading' | 'loading-data' | 'checking' | 'offline' | 'error' | 'server-down' }) {
-  if (kind === 'loading' || kind === 'loading-data' || kind === 'checking') {
-    return (
-      <main className="gate">
-        <Wordmark />
-        {/* L'avvio normale dura un attimo: il testo si vede solo quando c'è da scaricare i dati dell'account. */}
-        <p className={kind === 'loading' ? 'sr-only' : 'muted'} role="status">
-          {t(kind === 'loading-data' ? 'auth.loadingData' : kind === 'checking' ? 'adopt.checking' : 'auth.loading')}
-        </p>
-      </main>
-    )
-  }
-  const message = kind === 'offline' ? t('auth.offline') : kind === 'server-down' ? t('auth.serverDown') : t('auth.error')
+/** Toglie la schermata d'avvio (il fichetto che rimbalza, vedi boot.ts) quando compare la schermata che la sostituisce. */
+function useBootDone() {
+  useEffect(bootDone, [])
+}
+
+/** Le attese dell'avvio: controllo dell'accesso, scaricamento dei dati dell'account. */
+function Waiting({ kind }: { kind: 'loading' | 'loading-data' | 'checking' }) {
+  const text = t(kind === 'loading-data' ? 'auth.loadingData' : kind === 'checking' ? 'adopt.checking' : 'auth.loading')
+  // Finché c'è la schermata d'avvio resta lei, col fichetto che continua a rimbalzare senza ripartire:
+  // qui le si aggiunge solo la riga d'attesa. L'avvio normale dura un attimo e non mostra testo.
+  const boot = bootShowing()
+  useEffect(() => {
+    if (!boot) return
+    bootNote(kind === 'loading' ? '' : text)
+    if (kind !== 'loading') return
+    // Se anche il controllo dell'accesso va per le lunghe (rete lenta), dopo qualche secondo lo si dice.
+    const slow = window.setTimeout(() => bootNote(text), 4000)
+    return () => window.clearTimeout(slow)
+  }, [boot, kind, text])
+  // La riga sotto il fichetto è già un annuncio (role="status" in index.html): qui non lo si ripete.
+  if (boot) return null
+  return (
+    <main className="gate">
+      <Wordmark />
+      <p className={kind === 'loading' ? 'sr-only' : 'muted'} role="status">
+        {text}
+      </p>
+    </main>
+  )
+}
+
+function Gate({ kind }: { kind: 'offline' | 'error' | 'server-down' | 'failed' }) {
+  useBootDone()
+  const message = kind === 'offline' ? t('auth.offline') : kind === 'server-down' ? t('auth.serverDown') : kind === 'failed' ? t('boot.failed') : t('auth.error')
   return (
     <main className="gate">
       <Wordmark />
@@ -69,6 +100,7 @@ function Gate({ kind }: { kind: 'loading' | 'loading-data' | 'checking' | 'offli
  * Se il server lo permette si può anche partire senza account, coi dati solo sul dispositivo.
  */
 function Welcome({ localMode }: { localMode: boolean }) {
+  useBootDone()
   return (
     <main className="gate welcome">
       <Wordmark />
@@ -80,7 +112,7 @@ function Welcome({ localMode }: { localMode: boolean }) {
               className="primary wide"
               onClick={() => {
                 setLocalOnly(true)
-                void boot()
+                start()
               }}
             >
               {t('welcome.local')}
@@ -115,11 +147,18 @@ function Welcome({ localMode }: { localMode: boolean }) {
 function Root({ offline, local }: { offline: boolean; local: boolean }) {
   const status = useSyncStatus()
   const [choosing, setChoosing] = useState(() => getSyncStatus().conflict)
+  // La scelta prende il posto dell'app: la schermata d'avvio esce qui (altrimenti la toglie l'app quando ha i dati).
+  useEffect(() => {
+    if (choosing) bootDone()
+  }, [choosing])
   if (choosing) return <AdoptionChoice onClose={() => setChoosing(false)} />
   return <App offline={offline} local={local} onChooseAdoption={status.conflict ? () => setChoosing(true) : undefined} />
 }
 
 function renderApp(offline: boolean, local: boolean) {
+  // Di norma la schermata d'avvio la toglie l'app appena ha letto i dati. Se la lettura non arriva (database del
+  // browser bloccato) non deve restare a coprire tutto: dopo qualche secondo esce comunque.
+  window.setTimeout(bootDone, 6000)
   root.render(
     <StrictMode>
       <Root offline={offline} local={local} />
@@ -168,7 +207,7 @@ function resumeWhenReachable() {
 }
 
 async function boot() {
-  root.render(<Gate kind="loading" />)
+  root.render(<Waiting kind="loading" />)
   const auth = await initAuth()
   const owner = await db.syncMeta.get('owner')
   let offline = false
@@ -184,7 +223,7 @@ async function boot() {
       // Primo accesso su questo dispositivo: l'app si apre sui dati dell'utente, non su quelli predefiniti.
       // Se qui ci sono già dati suoi (usato senza account) non li si sta sostituendo: si controlla cosa c'è nell'account.
       const hasData = (await db.transactions.count()) + (await db.goals.count()) + (await db.recurring.count()) > 0
-      root.render(<Gate kind={hasData ? 'checking' : 'loading-data'} />)
+      root.render(<Waiting kind={hasData ? 'checking' : 'loading-data'} />)
       await Promise.race([sync.first, new Promise((resolve) => window.setTimeout(resolve, FIRST_SYNC_WAIT))])
     }
   } else if (owner) {
@@ -212,4 +251,12 @@ async function boot() {
   renderApp(offline, local)
 }
 
-void boot()
+/** Avvia l'app. Un errore imprevisto non deve lasciare il fichetto a rimbalzare per sempre: si mostra che qualcosa non va. */
+function start() {
+  boot().catch((error: unknown) => {
+    console.error(error)
+    root.render(<Gate kind="failed" />)
+  })
+}
+
+start()

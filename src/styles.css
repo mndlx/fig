@@ -341,6 +341,17 @@ select {
 .tx-title {
   font-size: 15px;
   font-weight: 500;
+  line-height: 1.25;
+}
+/* Le righe del ramo hanno tutte la stessa altezza: una nota lunga (per esempio la causale intera di un bonifico)
+   si ferma a due righe invece di finire sopra il giorno prima e quello dopo. Per intero si legge aprendo il movimento. */
+.row-tx .tx-title {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
 }
 
 .tx-meta {
@@ -1728,11 +1739,27 @@ select {
   text-align: center;
 }
 .wordmark.big {
+  flex-direction: column;
+  gap: 2px;
   font-size: 40px;
 }
-.wordmark.big svg {
-  width: 36px;
-  height: 36px;
+/* Il fichetto col viso (icons.tsx): lo stesso dell'icona e della schermata d'avvio. */
+.mascot {
+  display: block;
+  width: 112px;
+  height: 112px;
+}
+.mascot svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* Schermi bassi: il benvenuto coi suoi pulsanti deve starci senza scorrere. */
+@media (max-height: 640px) {
+  .mascot {
+    width: 80px;
+    height: 80px;
+  }
 }
 
 .avatar {
@@ -2547,6 +2574,40 @@ main > .seg,
   outline: none;
   color: var(--ink);
 }
+/* Sotto il campo di ricerca: dove cercare (tutto o il mese) e in che ordine. */
+.search-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+.search-tools .switch {
+  margin: 0;
+}
+.search-sort select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 30px 8px 14px;
+  font-size: 13px;
+  color: var(--ink);
+  /* La freccina del menu, disegnata: quella del sistema non segue il tema. */
+  background:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%) right 16px center / 5px 5px no-repeat,
+    linear-gradient(-45deg, transparent 50%, var(--muted) 50%) right 11px center / 5px 5px no-repeat,
+    var(--key);
+}
+.search-sort select:focus-visible {
+  outline: 2px solid var(--brand-text);
+  outline-offset: 2px;
+}
+.search-more {
+  display: block;
+  margin: 12px auto 0;
+}
 .search-open {
   display: inline-flex;
   align-items: center;
@@ -2565,9 +2626,55 @@ main > .seg,
   color: var(--muted);
   margin: 4px 4px 8px;
 }
+/* I totali di quello che si è cercato: quanto è uscito e quanto è entrato, sopra l'elenco. */
+.search-totals {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--key);
+}
+.search-totals dl {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+.search-total {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 12px;
+  align-items: baseline;
+}
+.search-total dt {
+  font-size: 14px;
+}
+.search-total dd {
+  margin: 0;
+}
+.search-total .tx-meta {
+  grid-column: 1 / -1;
+}
+/* Qui le righe piccole vanno a capo: altrove (nelle righe dei movimenti) si tagliano. */
+.search-totals .tx-meta {
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.4;
+}
+.search-total.net {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.search-totals > .tx-meta {
+  margin: 8px 0 0;
+}
+.search-totals .twin {
+  margin-top: 10px;
+}
 .search-row .grow {
   flex: 1;
   min-width: 0;
+  /* Un codice lungo senza spazi (un IBAN nella nota) va a capo invece di finire sopra l'importo. */
+  overflow-wrap: anywhere;
 }
 .search-row .amount {
   font-size: 16px;
@@ -3796,4 +3903,596 @@ button.secondary:not(.slim) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ——— Andamento: le statistiche di lungo periodo (Andamento.tsx, charts.tsx) ——— */
+
+.period-range {
+  margin: 0;
+}
+.switch.period {
+  margin: 10px 0 14px;
+}
+.switch.period button {
+  white-space: nowrap;
+}
+/* Una riga aperta da un suggerimento va sotto la barra in alto, non dietro. */
+.card.spend,
+.card.spend .legend-item {
+  scroll-margin-top: calc(64px + env(safe-area-inset-top));
+}
+
+/* Quanto ti resta */
+.keep-hero {
+  margin: 6px 0 2px;
+  font-family: var(--serif);
+  font-size: 34px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.keep-sub {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.keep-note {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.keep-top {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--key);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: left;
+}
+
+/* La riga che dice il mese o il giorno scelto: sempre due righe, così sotto non salta niente. */
+.readout {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 40px;
+  margin: 14px 0 4px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.readout-main {
+  font-weight: 500;
+}
+.readout-main::first-letter {
+  text-transform: uppercase;
+}
+.readout-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  color: var(--muted);
+}
+.readout .link-btn {
+  align-self: auto;
+  margin-left: auto;
+}
+/* Su uno schermo stretto le due righe diventano tre o quattro: l'altezza resta quella, così le colonne non saltano. */
+@media (max-width: 359px) {
+  .keep .readout {
+    min-height: 72px;
+  }
+}
+
+/* Grafici: griglie e assi restano sullo sfondo, il testo usa i colori del testo. */
+.chart {
+  width: 100%;
+}
+.chart svg {
+  display: block;
+  overflow: visible;
+}
+.chart text {
+  font-family: var(--sans);
+  font-size: 11px;
+  fill: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.chart .halo {
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.chart .mark-label {
+  fill: var(--ink);
+  font-size: 12px;
+  font-weight: 500;
+}
+.chart .grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.chart .grid.zero {
+  stroke: color-mix(in srgb, var(--ink) 30%, transparent);
+}
+.chart .line {
+  fill: none;
+  stroke: var(--thread);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+/* Il mese in corso non è finito: il suo tratto è più leggero. */
+.chart .line.running {
+  opacity: 0.45;
+}
+.chart .mark {
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+.chart .mark.high {
+  fill: var(--positive);
+}
+.chart .mark.low {
+  fill: var(--danger);
+}
+.chart .mark.today {
+  fill: var(--thread);
+}
+.chart .cross {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+.chart .cross-dot {
+  fill: var(--surface);
+  stroke: var(--thread);
+  stroke-width: 2;
+}
+.chart .hit {
+  fill: transparent;
+  cursor: pointer;
+}
+/* Col dito: in orizzontale si scorre la linea, in verticale la pagina. */
+.balance-line,
+.balance-line svg {
+  touch-action: pan-y;
+}
+.balance-line {
+  border-radius: 8px;
+}
+.balance-line:focus-visible,
+.net-bars .hit:focus-visible {
+  outline: 2px solid var(--brand-text);
+  outline-offset: 2px;
+}
+.net-bars .nb path {
+  fill: var(--positive);
+}
+.net-bars .nb.down path {
+  fill: var(--danger);
+}
+.net-bars .nb.running path {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1.5;
+}
+/* Il mese in corso che esce dalla scala dei mesi finiti: tratteggiato, è più lungo di come si vede. */
+.net-bars .nb.cut path {
+  stroke-dasharray: 3 3;
+}
+.net-bars .nb.dim path {
+  opacity: 0.45;
+}
+.net-bars .hit {
+  outline: none;
+}
+.mini-bars {
+  margin: 8px 0 2px;
+}
+
+.next-step {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--key);
+}
+.next-step p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+.next-step .primary {
+  align-self: flex-start;
+  padding: 10px 16px;
+  font-size: 14px;
+}
+
+/* La tabella sotto ogni grafico: gli stessi numeri, senza doverlo toccare. */
+.twin {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.twin summary {
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.twin-scroll {
+  margin-top: 6px;
+  overflow-x: auto;
+}
+.twin table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.twin th,
+.twin td {
+  padding: 6px 0 6px 8px;
+  border-top: 1px solid var(--line);
+  font-weight: 400;
+  text-align: right;
+  white-space: nowrap;
+}
+.twin thead th {
+  border-top: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.twin th:first-child {
+  padding-left: 0;
+  text-align: left;
+}
+.twin tfoot th,
+.twin tfoot td {
+  font-weight: 500;
+}
+.twin td.negative {
+  color: var(--danger);
+}
+.twin .link-btn {
+  font-size: inherit;
+  color: var(--ink);
+}
+.hint.left {
+  margin-top: 10px;
+  line-height: 1.4;
+  text-align: left;
+}
+
+/* Andamento del saldo */
+.bal-now {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  margin: 0 0 2px;
+}
+.bal-value {
+  font-family: var(--serif);
+  font-size: 26px;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.sub-title {
+  margin: 16px 0 8px;
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 400;
+}
+.ev-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ev-head {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 14px;
+}
+/* Lo stesso segno del grafico: tondo per un alto, rombo per un basso (non solo il colore). */
+.ev-mark {
+  align-self: center;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--positive);
+}
+.ev.low .ev-mark {
+  border-radius: 1px;
+  background: var(--danger);
+  transform: rotate(45deg) scale(0.85);
+}
+.ev-title {
+  font-weight: 500;
+}
+.ev-title .muted {
+  font-weight: 400;
+}
+.ev-text {
+  margin: 4px 0 2px 22px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.ev > .link-btn {
+  margin-left: 22px;
+}
+.cat-tx.flat {
+  padding: 6px 0 0 22px;
+}
+
+/* Dove vanno i soldi */
+/* Titolo e selettore uno sotto l'altro: su uno schermo stretto fianco a fianco andrebbero a capo tutti e due. */
+.card-head.stack {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.card-head.stack .switch {
+  margin: 0;
+}
+.cat-tx-row.who .grow {
+  display: flex;
+  flex-direction: column;
+  white-space: normal;
+}
+.cat-tx-date.long {
+  width: 62px;
+  white-space: nowrap;
+}
+.spend-row .legend-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  min-width: 0;
+}
+.spend-sub {
+  flex-basis: 100%;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+}
+/* Tratteggio: qui dentro non si vede cosa c'è. */
+.legend-bar .hatched {
+  background: repeating-linear-gradient(135deg, var(--muted) 0 3px, transparent 3px 6px);
+}
+.cat-tx-head {
+  margin: 10px 0 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.cat-tx-row.plain {
+  cursor: default;
+}
+.cat-tx > .link-btn,
+.cat-tx > .secondary {
+  margin-top: 10px;
+}
+/* Dentro una riga aperta lo sfondo è già quello dei pulsanti secondari: qui il pulsante prende quello della scheda. */
+.cat-tx > .secondary {
+  background: var(--surface);
+}
+.link-btn.center {
+  display: block;
+  align-self: center;
+  margin: 10px auto 0;
+}
+
+/* Da dove cominciare */
+.tips .tip {
+  font: inherit;
+  line-height: 1.45;
+  text-align: left;
+}
+
+/* ——— Andamento del saldo: salite e discese (BalanceCard.tsx) ——— */
+
+/* Sopra la linea: sei righe, sempre (il tratto, il perché, il giorno). Mentre il dito scorre, il grafico non si muove sotto di lui. */
+.readout.swing {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  min-height: 0;
+  line-height: 1.4;
+}
+.readout.swing > span {
+  min-width: 0;
+  min-height: 1.4em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.readout-leg {
+  grid-column: 1;
+  font-size: 14px;
+  font-weight: 500;
+}
+.readout-when {
+  grid-column: 1;
+  color: var(--muted);
+}
+/* I due pulsanti per passare alla salita o alla discesa prima e dopo: non serve la precisione del dito. */
+.readout.swing > .pager {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  gap: 4px;
+  align-self: center;
+  overflow: visible;
+}
+.pager button {
+  width: 36px;
+  height: 38px;
+  border-radius: 12px;
+  background: var(--key);
+  font-size: 20px;
+  line-height: 1;
+}
+.pager button:disabled {
+  opacity: 0.35;
+}
+.readout.swing > .readout-why {
+  grid-column: 1 / -1;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  height: 2.8em;
+  white-space: normal;
+  color: var(--muted);
+}
+.readout-day {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  font-weight: 500;
+}
+.readout-day::first-letter {
+  text-transform: uppercase;
+}
+.readout-move {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+
+/* Il tratto scelto: una fascia dietro e la linea più spessa; i suoi giorni pesanti hanno una tacca. */
+.chart .leg-band {
+  fill: color-mix(in srgb, var(--thread) 11%, transparent);
+}
+.chart .line.leg-on {
+  stroke-width: 4.5;
+}
+/* Un segno vuoto: il colore della linea, su un fondo che lo stacca da lei. */
+.chart .mark-disc {
+  fill: var(--surface);
+  stroke: none;
+}
+.chart .mark.hollow {
+  fill: var(--surface);
+  stroke: var(--thread);
+  stroke-width: 1.5;
+}
+.chart .step {
+  fill: var(--ink);
+  stroke: var(--surface);
+  stroke-width: 2;
+  paint-order: stroke;
+}
+
+/* Sotto la linea: cosa vogliono dire i segni, i due collegamenti, la didascalia. */
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+.chart-legend .lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink);
+}
+.chart-legend .lg.low .ev-mark {
+  border-radius: 1px;
+  background: var(--danger);
+  transform: rotate(45deg) scale(0.85);
+}
+/* "Vuoti: tutti gli altri" si legge solo quando i segni vuoti ci sono davvero (su uno schermo stretto non c'è posto). */
+.balance-line[data-hollow='0'] + .chart-legend .lg-hollow {
+  display: none;
+}
+.chart-links {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  min-height: 22px;
+  margin-top: 8px;
+}
+.chart-note {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.chart-note.top {
+  margin: 8px 0 12px;
+}
+/* "Come si legge": una riga discreta finché è chiuso. */
+.howto {
+  margin-top: 6px;
+}
+.howto summary {
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.howto ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 4px;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* L'elenco delle salite e delle discese: la testa di ogni riga è un pulsante che la mostra sul grafico. */
+.ev-filter {
+  margin: 10px 0 14px;
+}
+button.ev-head {
+  width: 100%;
+  text-align: left;
+}
+.ev.on {
+  margin: -6px -8px;
+  padding: 6px 8px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--thread) 9%, transparent);
+}
+.ev .ev-mark.hollow,
+.ev.low .ev-mark.hollow {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1.5px var(--thread);
+}
+.ev .ev-mark.today,
+.ev.low .ev-mark.today {
+  border-radius: 50%;
+  background: var(--thread);
+  transform: none;
+}
+.ev .cat-tx.flat .link-btn {
+  margin-top: 6px;
+}
+
+/* Sotto le colonnine di una voce: il primo e l'ultimo mese, così si sa da che parte si legge. */
+.mini-ends {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
 }
