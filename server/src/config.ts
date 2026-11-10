@@ -28,6 +28,11 @@ export const config = {
   clientId: process.env.OIDC_CLIENT_ID ?? 'fig',
   /** Secret del client confidenziale su Keycloak (tab "Credentials"). Non va mai nel repository. */
   clientSecret: process.env.OIDC_CLIENT_SECRET ?? '',
+  /**
+   * Ruolo del client che serve per entrare (Keycloak → Clients → fig → Roles, assegnato all'utente). Il realm è
+   * condiviso con altre app: senza questo controllo entrerebbe chiunque abbia un account. Vuoto = nessun controllo.
+   */
+  requiredRole: (process.env.OIDC_REQUIRED_ROLE ?? 'access').trim(),
   /** Durata della sessione dell'app, rinnovata a ogni utilizzo. */
   sessionDays: Number(process.env.SESSION_DAYS ?? 30),
   /** Solo per sviluppo locale: salta il login e usa un utente fisso. */

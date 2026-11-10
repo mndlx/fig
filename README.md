@@ -74,6 +74,12 @@ Tutta la configurazione sta nel server; il frontend non ne ha. Copia `server/.en
 
 In entrambi va compilato `OIDC_CLIENT_SECRET` (Keycloak → realm virtual-systems → Clients → fig → Credentials). I file `.env` non vanno mai nel repository.
 
+### Chi può entrare
+
+Il realm `virtual-systems` è condiviso con altre app: avere un account lì non basta. Entra solo chi ha il ruolo `access` del client fig (Keycloak → Clients → fig → Roles; all'utente: Users → Role mapping → Assign role → Filter by clients → `fig access`). Il server lo legge dall'access token al login, verificato con le chiavi del realm; chi non ce l'ha vede «Questo account non ha accesso a FIG», senza sessione e senza una riga nel database. Il nome del ruolo si cambia con `OIDC_REQUIRED_ROLE`.
+
+Il controllo è al login: chi perde il ruolo resta dentro finché la sua sessione dell'app non scade o non viene chiusa (`DELETE FROM sessions WHERE user_id = '<sub>'`).
+
 Per lavorare senza login: `AUTH_DISABLED=1` in `server/.env`.
 
 ## Pubblicazione

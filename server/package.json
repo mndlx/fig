@@ -8,7 +8,7 @@
     "dev": "tsx watch --include .env src/index.ts",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test test/api.test.ts"
+    "test": "node --import tsx --test test/api.test.ts test/role.test.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.11.1",

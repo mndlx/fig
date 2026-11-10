@@ -134,6 +134,20 @@ export function authRouter(db: Db) {
     res.status(500).type('text/plain').send(`FIG sign-in error: ${message}`)
   }
 
+  /** Account valido ma senza il ruolo di FIG: nessuna sessione, e un'uscita da Keycloak per entrare con un altro account. */
+  function denied(res: Response, logout: string) {
+    res
+      .status(403)
+      .type('html')
+      .send(
+        `<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
+          `<title>FIG</title></head><body style="font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;line-height:1.5">` +
+          `<h1 style="font-size:1.25rem">Questo account non ha accesso a FIG</h1>` +
+          `<p>L'accesso a FIG è su invito. This account doesn't have access to FIG.</p>` +
+          `<p><a href="${escapeHtml(logout)}">Esci da questo account · Sign out</a></p></body></html>`,
+      )
+  }
+
   router.get('/login', async (req, res) => {
     if (config.authDisabled) return res.redirect(safeReturnTo(req.query.returnTo))
     if (!config.issuer || !config.clientSecret) return failure(res, 'OIDC_ISSUER or OIDC_CLIENT_SECRET is not set on the server (.env).')
@@ -189,11 +203,18 @@ export function authRouter(db: Db) {
           code_verifier: saved.verifier,
         }),
       })
-      const tokens = (await tokenRes.json()) as { id_token?: string; error?: string; error_description?: string }
+      const tokens = (await tokenRes.json()) as { id_token?: string; access_token?: string; error?: string; error_description?: string }
       if (!tokenRes.ok || !tokens.id_token) return failure(res, `token exchange: ${tokens.error ?? tokenRes.status} ${tokens.error_description ?? ''}`)
 
       const { payload } = await jwtVerify(tokens.id_token, jwks, { issuer: meta.issuer, audience: config.clientId })
       if (payload.nonce !== saved.nonce || !payload.sub) return failure(res, 'invalid id token')
+
+      // Il realm è condiviso con altre app: entra solo chi ha il ruolo di FIG. Prima di qualsiasi scrittura,
+      // così chi non ce l'ha non lascia nemmeno una riga in `users`.
+      if (config.requiredRole && !(await hasRequiredRole(tokens.access_token, jwks, meta.issuer, payload.sub))) {
+        console.log('sign-in refused: the account lacks the FIG client role')
+        return denied(res, await logoutUrl(tokens.id_token))
+      }
 
       const now = Date.now()
       upsertUser.run({
@@ -225,6 +246,37 @@ export function authRouter(db: Db) {
 
   return router
 }
+
+/**
+ * I ruoli di FIG dell'utente, dall'access token di Keycloak (`resource_access.<client>.roles`; l'ID token non li
+ * porta). Il token arriva dal token endpoint, ma si verifica comunque: firma e issuer del realm, emesso per questo
+ * client (`azp`) e per lo stesso utente dell'ID token. Un ruolo di un altro client (es. `linnet.access`) non vale.
+ */
+export function clientRoles(accessToken: Record<string, unknown>, clientId: string): string[] {
+  const access = accessToken.resource_access
+  const client = access && typeof access === 'object' ? (access as Record<string, unknown>)[clientId] : undefined
+  const roles = client && typeof client === 'object' ? (client as { roles?: unknown }).roles : undefined
+  return Array.isArray(roles) ? roles.filter((r): r is string => typeof r === 'string') : []
+}
+
+async function hasRequiredRole(
+  accessToken: string | undefined,
+  jwks: ReturnType<typeof createRemoteJWKSet>,
+  issuer: string,
+  sub: string,
+): Promise<boolean> {
+  if (!accessToken) return false
+  try {
+    const { payload } = await jwtVerify(accessToken, jwks, { issuer })
+    // `sub` manca solo negli access token "leggeri" di Keycloak: lì bastano firma, issuer e azp di questo scambio.
+    if (payload.azp !== config.clientId || (payload.sub !== undefined && payload.sub !== sub)) return false
+    return clientRoles(payload, config.clientId).includes(config.requiredRole)
+  } catch {
+    return false
+  }
+}
+
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 
 /** Indirizzo di uscita da Keycloak (chiude anche la sessione dell'identity provider); '/' se non disponibile. */
 async function logoutUrl(idToken?: string | null): Promise<string> {
